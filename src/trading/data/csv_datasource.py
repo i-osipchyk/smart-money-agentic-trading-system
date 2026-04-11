@@ -11,8 +11,9 @@ class CSVDataSource:
         symbol: str,
         timeframe: str,
         limit: int,
+        filename_override: str | None = None,
     ) -> pd.DataFrame:
-        filename = self._build_filename(symbol, timeframe)
+        filename = filename_override if filename_override is not None else self._build_filename(symbol, timeframe)
         filepath = self._data_dir / filename
 
         if not filepath.exists():

@@ -17,7 +17,8 @@ dependencies = [
 ]
 
 [project.scripts]
-trading = "trading:main"
+trading     = "trading:main"
+trading-gui = "trading.gui:main"
 
 [build-system]
 requires = ["uv_build>=0.11.6,<0.12.0"]

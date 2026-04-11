@@ -11,11 +11,14 @@ You will receive:
 - Higher timeframe Points of Interest (POIs)
 - Lower timeframe fractals, BOS events, and FVGs
 
+Your trading strategy is:
+HTF POI(FVG) + LTF Confirmation(BOS) = Trade Setup
+
 Your job is to:
-1. Determine if price is near a significant HTF POI
-2. Look for LTF confirmation signals (BOS in direction of HTF trend, FVG as entry)
-3. If confirmed, define entry, stop loss, and take profit levels
-4. If not confirmed, explain why you are skipping this setup
+1. Select POIs that align with the HTF trend that you've received
+2. Look for the high/low swings to form in the POI or just above(for bearish), just below(for bullish)
+3. Check for the BOS that confirms the idea
+4. If all three pass, define entry, stop loss, and take profit levels
 
 Respond in this exact format:
 SHOULD_TRADE: <yes|no>
@@ -111,7 +114,7 @@ def _parse_response(response: str, state: MarketState) -> TradeDecision:
 
 def run_ltf_agent(state: MarketState) -> MarketState:
     llm = ChatAnthropic(model_name="claude-opus-4-5")  # type: ignore[call-arg]
-    
+
     context = _format_ltf_context(state)
 
     messages = [

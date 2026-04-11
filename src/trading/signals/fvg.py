@@ -29,25 +29,31 @@ def detect_fvg(df: pd.DataFrame, timeframe: Timeframe) -> list[FVG]:
         nxt = df.iloc[i + 1]
 
         if nxt["low"] > prev["high"]:
-            fvgs.append(
-                FVG(
-                    timestamp=curr["timestamp"],
-                    top=nxt["low"],
-                    bottom=prev["high"],
-                    trend=Trend.BULLISH,
-                    timeframe=timeframe,
+            bottom = float(prev["high"])
+            subsequent_closes = df.iloc[i + 2 :]["close"]
+            if not (subsequent_closes < bottom).any():
+                fvgs.append(
+                    FVG(
+                        timestamp=curr["timestamp"],
+                        top=nxt["low"],
+                        bottom=bottom,
+                        trend=Trend.BULLISH,
+                        timeframe=timeframe,
+                    )
                 )
-            )
 
         if nxt["high"] < prev["low"]:
-            fvgs.append(
-                FVG(
-                    timestamp=curr["timestamp"],
-                    top=prev["low"],
-                    bottom=nxt["high"],
-                    trend=Trend.BEARISH,
-                    timeframe=timeframe,
+            top = float(prev["low"])
+            subsequent_closes = df.iloc[i + 2 :]["close"]
+            if not (subsequent_closes > top).any():
+                fvgs.append(
+                    FVG(
+                        timestamp=curr["timestamp"],
+                        top=top,
+                        bottom=nxt["high"],
+                        trend=Trend.BEARISH,
+                        timeframe=timeframe,
+                    )
                 )
-            )
 
     return sorted(fvgs, key=lambda f: f.timestamp)
