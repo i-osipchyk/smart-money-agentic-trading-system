@@ -1,0 +1,48 @@
+[project]
+name = "trading"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Ivan Osipchyk", email = "ivan.osipchyk.work@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "ccxt>=4.5.48",
+    "langchain-anthropic>=1.4.0",
+    "langgraph>=1.1.6",
+    "pandas>=3.0.2",
+    "pydantic>=2.12.5",
+    "python-dotenv>=1.2.2",
+]
+
+[project.scripts]
+trading = "trading:main"
+
+[build-system]
+requires = ["uv_build>=0.11.6,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.0",
+    "pandas-stubs>=3.0.0.260204",
+    "ruff>=0.15.10",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes (unused imports, undefined names)
+    "I",   # isort (import ordering)
+    "UP",  # pyupgrade (modernize syntax)
+]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["src"]
