@@ -51,3 +51,13 @@ files = ["src"]
 [[tool.mypy.overrides]]
 module = "ccxt"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "ccxt",
+    "langchain_anthropic",
+    "langchain_core.*",
+    "langgraph.*",
+]
+ignore_missing_imports = true
+ignore_errors = true
