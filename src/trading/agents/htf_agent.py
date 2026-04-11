@@ -4,8 +4,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from trading.core.models import FVG, BOS, Fractal, MarketState, PointOfInterest, SignalType, Timeframe, Trend
 from trading.signals import detect_bos, detect_fractals, detect_fvg
 
-llm = ChatAnthropic(model_name="claude-opus-4-5")  # type: ignore[call-arg]
-
 HTF_SYSTEM_PROMPT = """You are an expert Smart Money Concepts trader analyzing higher timeframe market structure.
 
 You will receive:
@@ -88,6 +86,8 @@ def _parse_response(response: str, timeframe: Timeframe) -> tuple[Trend, list[Po
 
 
 def run_htf_agent(state: MarketState) -> MarketState:
+    llm = ChatAnthropic(model_name="claude-opus-4-5")  # type: ignore[call-arg]
+    
     fractals = detect_fractals(state.htf_candles, state.htf_timeframe)
     bos_list = detect_bos(state.htf_candles, fractals, state.htf_timeframe)
     fvgs = detect_fvg(state.htf_candles, state.htf_timeframe)

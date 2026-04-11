@@ -1,2 +1,4 @@
 def main() -> None:
-    print("Hello from trading!")
+    from trading.main import run
+    run()
+    

@@ -4,8 +4,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from trading.core.models import MarketState, PointOfInterest, TradeDecision, Trend
 from trading.signals import detect_bos, detect_fractals, detect_fvg
 
-llm = ChatAnthropic(model_name="claude-opus-4-5")  # type: ignore[call-arg]
-
 LTF_SYSTEM_PROMPT = """You are an expert Smart Money Concepts trader analyzing lower timeframe price action.
 
 You will receive:
@@ -112,6 +110,8 @@ def _parse_response(response: str, state: MarketState) -> TradeDecision:
 
 
 def run_ltf_agent(state: MarketState) -> MarketState:
+    llm = ChatAnthropic(model_name="claude-opus-4-5")  # type: ignore[call-arg]
+    
     context = _format_ltf_context(state)
 
     messages = [
