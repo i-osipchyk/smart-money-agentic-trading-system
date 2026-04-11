@@ -46,3 +46,7 @@ select = [
 python_version = "3.13"
 strict = true
 files = ["src"]
+
+[[tool.mypy.overrides]]
+module = "ccxt"
+ignore_missing_imports = true
