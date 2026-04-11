@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -9,16 +10,23 @@ from trading.data import BinanceDataSource, CSVDataSource
 load_dotenv()
 
 
+def _print_separator(title: str) -> None:
+    print(f"\n{'='*50}")
+    print(f"  {title}")
+    print(f"{'='*50}")
+
+
 def run() -> None:
-    print("=== Smart Money Agentic Trading System ===\n")
+    _print_separator("Smart Money Agentic Trading System")
 
     source = CSVDataSource(data_dir=Path("data"))
-
     htf_candles = source.get_ohlcv(symbol="BTC/USDT", timeframe="1h", limit=100)
     ltf_candles = source.get_ohlcv(symbol="BTC/USDT", timeframe="1h", limit=50)
 
-    print(f"Loaded {len(htf_candles)} HTF candles")
-    print(f"Loaded {len(ltf_candles)} LTF candles\n")
+    print(f"\nSymbol:       BTC/USDT")
+    print(f"HTF candles:  {len(htf_candles)} x 1d")
+    print(f"LTF candles:  {len(ltf_candles)} x 1d")
+    print(f"HTF range:    {htf_candles['timestamp'].iloc[0].date()} → {htf_candles['timestamp'].iloc[-1].date()}")
 
     state = MarketState(
         symbol="BTC/USDT",
@@ -29,17 +37,36 @@ def run() -> None:
     )
 
     graph = build_graph()
-
-    print("--- Running HTF Agent ---")
     result = graph.invoke(state)
 
-    print(f"Trend:    {result['trend']}")
-    print(f"POIs found: {len(result['points_of_interest'])}")
-    print(f"HTF Analysis: {result['htf_analysis']}\n")
+    _print_separator("HTF Agent — Market Structure")
+    print(f"\nTrend:     {result['trend']}")
+    print(f"POIs:      {len(result['points_of_interest'])} identified")
+    print(f"\nAnalysis:  {result['htf_analysis']}")
+
+    if result["points_of_interest"]:
+        print("\nPoints of Interest:")
+        for i, poi in enumerate(result["points_of_interest"], 1):
+            print(f"  {i}. {poi.signal_type.value.upper()} | {poi.trend.value.upper()} | "
+                  f"{poi.price_bottom:.2f} - {poi.price_top:.2f}")
+            print(f"     {poi.description}")
+
+    _print_separator("LTF Agent — Trade Decision")
 
     if result["trade_decision"]:
-        print("--- LTF Agent Decision ---")
-        print(result["trade_decision"])
+        decision = json.loads(result["trade_decision"])
+        should_trade = decision["should_trade"]
+        print(f"\nDecision:   {'TRADE' if should_trade else 'NO TRADE'}")
+
+        if should_trade:
+            print(f"Direction:  {decision['direction']}")
+            print(f"Entry:      {decision['entry_price']}")
+            print(f"Stop Loss:  {decision['stop_loss']}")
+            print(f"Take Profit:{decision['take_profit']}")
+
+        print(f"Confidence: {decision['confidence']}")
+        print(f"\nReasoning:  {decision['reasoning']}")
     else:
-        print("--- LTF Agent ---")
-        print("No POIs found on HTF. No trade setup.")
+        print("\nNo POIs found on HTF. No trade setup.")
+
+    print()
