@@ -25,8 +25,15 @@ def detect_fractals(df: pd.DataFrame, timeframe: Timeframe, window: int = 2) -> 
         slice_highs = df["high"].iloc[i - window : i + window + 1]
         slice_lows = df["low"].iloc[i - window : i + window + 1]
 
-        is_fractal_high = df["high"].iloc[i] == slice_highs.max()
-        is_fractal_low = df["low"].iloc[i] == slice_lows.min()
+        is_fractal_high = df["high"].iloc[i] == slice_highs.max() and (
+            df["high"].iloc[i] > df["high"].iloc[i - window : i].max() and
+            df["high"].iloc[i] > df["high"].iloc[i + 1 : i + window + 1].max()
+        )
+
+        is_fractal_low = df["low"].iloc[i] == slice_lows.min() and (
+            df["low"].iloc[i] < df["low"].iloc[i - window : i].min() and
+            df["low"].iloc[i] < df["low"].iloc[i + 1 : i + window + 1].min()
+        )
 
         if is_fractal_high:
             fractals.append(
