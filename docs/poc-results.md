@@ -2,15 +2,15 @@
 
 ## Methodology
 
-The PoC was designed to validate the core trading logic of the two-agent system, focusing on the interplay between HTF and LTF agents using the FVG + BOS framework. Real trade examples from the past were taken to the system to see how it asseses them.
+The PoC was designed to validate the core trading logic of the two-agent system, focusing on the interplay between HTF and LTF agents using the FVG + BOS framework. Real trade examples from the past were taken to the system to see how it aseses them.
 
 ## HTF Agent
 
-HTF Agent provided good reasoning about states of market, seeing bullish, bearish and ranging regimes. However, when multiple FVGs are present on a chart, its reasoning become ambiguous, even though by the look of charts it showld not, which negatively influences decision of LTF Agent.
+HTF Agent provided good reasoning about states of market, seeing bullish, bearish and ranging regimes. However, when multiple FVGs are present on a chart, its reasoning become ambiguous, even though by the look of charts it should not, which negatively influences decision of LTF Agent.
 
 ## LTF Agent
 
-LTF Agent also did a good job in assesing the data it was fed with. But it was mostly not sure about its decision because of the uncertainty of results from HTF Agent. When the latter provided reasoning for both bullish and bearish trends, which are most of the cases, LTF Agent was hesitating to take any action.
+LTF Agent also did a good job in asesing the data it was fed with. But it was mostly not sure about its decision because of the uncertainty of results from HTF Agent. When the latter provided reasoning for both bullish and bearish trends, which are most of the cases, LTF Agent was hesitating to take any action.
 
 ## Strategy Following
 
