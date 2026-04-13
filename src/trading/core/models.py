@@ -91,3 +91,13 @@ class TradeDecision(BaseModel):
     take_profit: float | None = None
     reasoning: str
     confidence: str
+
+
+class StrategySetup(BaseModel):
+    input_data: str
+    strategy_description: str
+    direction: Trend
+    htf_poi: str
+    confirm_details: str
+    target: str
+    candles: str
