@@ -102,6 +102,8 @@ class HtfFvgLtfBos(Strategy):
         if signal is None:
             return None
 
+        entry, stop_loss, take_profit = _compute_levels(signal)
+
         return StrategySetup(
             input_data=_format_input_data(
                 symbol, htf_df, htf_timeframe, ltf_df, ltf_timeframe, self._fvg_offset_pct
@@ -112,6 +114,9 @@ class HtfFvgLtfBos(Strategy):
             confirm_details=_format_confirm_details(signal),
             target=_format_target(htf_fvgs, htf_fractals, signal.direction),
             candles=_format_candles(htf_df, htf_timeframe),
+            entry=entry,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
         )
 
 
@@ -192,6 +197,31 @@ def _find_signal(
                     )
 
     return None
+
+
+# --------------------------------------------------------- level computation
+
+def _compute_levels(signal: _EntrySignal) -> tuple[float, float, float]:
+    """
+    Return (entry, stop_loss, take_profit) for a baseline limit order.
+
+    - Entry:      BOS level (limit order placed at the prior swing that was broken).
+    - Stop Loss:  1 unit beyond the swing point that entered the FVG, rounded to
+                  the nearest integer (floor for bullish, ceil for bearish).
+    - Take Profit: 2:1 reward/risk relative to entry.
+    """
+    entry = signal.bos_level
+
+    if signal.direction == Trend.BULLISH:
+        stop_loss = float(round(signal.swing_point.price) - 1)
+        risk = entry - stop_loss
+        take_profit = entry + 2 * risk
+    else:
+        stop_loss = float(round(signal.swing_point.price) + 1)
+        risk = stop_loss - entry
+        take_profit = entry - 2 * risk
+
+    return entry, stop_loss, take_profit
 
 
 # ------------------------------------------------------------ formatters

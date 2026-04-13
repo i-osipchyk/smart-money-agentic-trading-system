@@ -101,3 +101,6 @@ class StrategySetup(BaseModel):
     confirm_details: str
     target: str
     candles: str
+    entry: float
+    stop_loss: float
+    take_profit: float
