@@ -126,6 +126,8 @@ def _find_signal(
     if not htf_fvgs or not ltf_fractals:
         return None
 
+    last_candle_ts = ltf_df["timestamp"].iloc[-1]
+
     fractals_sorted = sorted(ltf_fractals, key=lambda f: f.timestamp)
     swing_lows = [f for f in fractals_sorted if not f.is_high]
     swing_highs = [f for f in fractals_sorted if f.is_high]
@@ -150,6 +152,8 @@ def _find_signal(
 
                 if not bos_rows.empty:
                     bos_candle = bos_rows.iloc[0]
+                    if bos_candle["timestamp"] != last_candle_ts:
+                        continue
                     return _EntrySignal(
                         direction=Trend.BULLISH,
                         fvg=fvg,
@@ -176,6 +180,8 @@ def _find_signal(
 
                 if not bos_rows.empty:
                     bos_candle = bos_rows.iloc[0]
+                    if bos_candle["timestamp"] != last_candle_ts:
+                        continue
                     return _EntrySignal(
                         direction=Trend.BEARISH,
                         fvg=fvg,

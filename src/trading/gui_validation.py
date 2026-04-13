@@ -34,13 +34,14 @@ class ValidationGUI:
         self._output_queue: queue.Queue[str | None] = queue.Queue()
 
         self._source_var = tk.StringVar(value="csv")
+        self._mode_var = tk.StringVar(value="prompt")
         self._htf_csv_var = tk.StringVar()
         self._ltf_csv_var = tk.StringVar()
         self._until_var = tk.StringVar()
         self._htf_tf_var = tk.StringVar(value="1h")
         self._ltf_tf_var = tk.StringVar(value="15m")
         self._htf_limit_var = tk.StringVar(value="72")
-        self._ltf_limit_var = tk.StringVar(value="96")
+        self._ltf_limit_var = tk.StringVar(value="16")
         self._symbol_var = tk.StringVar(value="BTC/USDT:USDT")
         # Offset in tenths of a percent (1 = 0.1 %, 10 = 1.0 %)
         self._offset_var = tk.StringVar(value="10")
@@ -143,7 +144,7 @@ class ValidationGUI:
 
         # --- Options ---
         opt_frame = ttk.LabelFrame(parent, text="Options", padding=8)
-        opt_frame.pack(fill=tk.X, pady=(0, 12))
+        opt_frame.pack(fill=tk.X, pady=(0, 8))
 
         opt_inner = ttk.Frame(opt_frame)
         opt_inner.pack(fill=tk.X)
@@ -153,6 +154,15 @@ class ValidationGUI:
         ttk.Spinbox(
             opt_inner, textvariable=self._offset_var, from_=0, to=1000, width=5
         ).grid(row=0, column=1, sticky=tk.W)
+
+        # --- Mode ---
+        mode_frame = ttk.LabelFrame(parent, text="Mode", padding=8)
+        mode_frame.pack(fill=tk.X, pady=(0, 12))
+
+        for label, value in [("Prompt Validation", "prompt"), ("Agent Test", "agent")]:
+            ttk.Radiobutton(
+                mode_frame, text=label, variable=self._mode_var, value=value
+            ).pack(anchor=tk.W)
 
         # --- Submit ---
         self._submit_btn = ttk.Button(parent, text="Detect Entry", command=self._on_submit)
@@ -311,6 +321,11 @@ class ValidationGUI:
                 print(f"FVG offset: {offset_display:.1f} %")
                 print("\n" + "─" * 44)
                 print("\nNo entry detected.")
+            elif self._mode_var.get() == "prompt":
+                prompt = build_prompt(setup)
+                print("─" * 44)
+                print("PROMPT VALIDATION — agent not called\n")
+                print(prompt)
             else:
                 prompt = build_prompt(setup)
                 print("Sending to agent...\n")

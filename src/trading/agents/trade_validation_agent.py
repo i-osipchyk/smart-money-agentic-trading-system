@@ -6,7 +6,7 @@ from trading.core.models import StrategySetup
 
 load_dotenv()
 
-_MODEL = "claude-opus-4-6"
+_MODEL = "claude-opus-4-5"
 
 
 def build_prompt(setup: StrategySetup) -> str:
