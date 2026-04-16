@@ -1,0 +1,122 @@
+Backtest:  htf_fvg_ltf_bos
+Symbol:    BTC/USDT:USDT
+HTF:       1h  (72 candles)
+LTF:       15m  (16 candles)
+Range:     2026-04-01 00:00 → 2026-04-13 19:05 UTC
+Mode:      agent_test
+Steps:     1229
+============================================================
+
+Fetching HTF (1h) data …
+  page 1 (since 2026-03-29 00:00 UTC) …
+  → 380 candles
+
+Fetching LTF (15m) data …
+  page 1 (since 2026-03-31 20:00 UTC) …
+  page 2 (since 2026-04-11 06:00 UTC) …
+  → 1245 candles
+
+
+Querying agent …
+[2026-04-01 15:45] NO TRADE  —  Despite valid SMC structure, the R:R ratio of approximately 0.4:1 to nearest resistance (69,288) fails to meet the minimum 2:1 requirement, making this a poor risk-adjusted entry.
+Querying agent …
+[2026-04-02 00:30] NO TRADE  —  While the setup structure is valid with confirmed BOS, current price has moved too far from the FVG zone making the risk-reward ratio at market entry approximately 1:1, failing the minimum 2:1 requirement for entry.
+Querying agent …
+[2026-04-02 17:45] NO TRADE  —  While the SMC structure is valid with confirmed BOS, the risk-reward ratio falls below the required 2:1 minimum due to late entry timing and nearby support clusters limiting profit potential.
+Querying agent …
+[2026-04-03 12:45] NO TRADE  —  While the structure is technically valid, the marginal FVG penetration (swing high barely touched FVG bottom) combined with late entry timing after BOS and clustered support levels creates an unfavorable risk-reward scenario for a high-probability trade.
+Querying agent …
+────────────────────────────────────────────────────────────
+Trade #1  at  2026-04-03 21:30 UTC
+Direction:   BULLISH
+Entry:       66,899.70  (limit at BOS level)
+Stop Loss:   66,740.00  (risk 159.70)
+Take Profit: 67,219.10  (reward 319.40, 2:1 RR)
+Confidence:  LOW
+Reasoning:   Valid SMC setup with confirmed BOS and 2.1:1 RR achievable, but counter-trend nature, small FVG size, and multiple overhead resistances reduce probability of success.
+Querying agent …
+[2026-04-04 13:30] NO TRADE  —  Trade fails the mandatory 2:1 risk-reward requirement as nearest valid TP targets above entry provide only ~1.35:1 RR, and most listed TP candidates are incorrectly below the entry price.
+Querying agent …
+────────────────────────────────────────────────────────────
+Trade #2  at  2026-04-04 15:00 UTC
+Direction:   BULLISH
+Entry:       67,245.30  (limit at BOS level)
+Stop Loss:   67,003.00  (risk 242.30)
+Take Profit: 67,729.90  (reward 484.60, 2:1 RR)
+Confidence:  HIGH
+Reasoning:   Clean textbook SMC setup with valid bullish FVG, confirmed liquidity sweep at swing low inside the FVG, definitive BOS confirmation with strong momentum, and favorable 4:1 risk-reward ratio targeting the bearish FVG bottom at 68,313.80.
+Querying agent …
+────────────────────────────────────────────────────────────
+Trade #3  at  2026-04-06 09:00 UTC
+Direction:   BULLISH
+Entry:       69,338.20  (limit at BOS level)
+Stop Loss:   68,769.00  (risk 569.20)
+Take Profit: 70,476.60  (reward 1,138.40, 2:1 RR)
+Confidence:  MEDIUM
+Reasoning:   Valid bullish FVG with confirmed BOS and strong momentum, but entry is late in the move requiring careful limit order placement for adequate R:R; the setup structure is sound but timing is not optimal.
+Querying agent …
+[2026-04-07 06:00] NO TRADE  —  BOS not confirmed - price closed at 68,540 which is ABOVE the required BOS level of 68,510.50; a close BELOW is mandatory for valid bearish setup confirmation.
+Querying agent …
+[2026-04-07 14:00] NO TRADE  —  Valid bearish setup structure confirmed, but current price levels do not provide the required 2:1 risk-reward ratio - maximum achievable R:R is approximately 1.5:1 even with the deepest TP target.
+Querying agent …
+────────────────────────────────────────────────────────────
+Trade #4  at  2026-04-07 16:15 UTC
+Direction:   BULLISH
+Entry:       68,203.00  (limit at BOS level)
+Stop Loss:   67,710.00  (risk 493.00)
+Take Profit: 69,189.00  (reward 986.00, 2:1 RR)
+Confidence:  MEDIUM
+Reasoning:   Valid HTF bullish FVG with confirmed LTF swing low inside zone and BOS break, but marginal BOS confirmation (only 4 points above) and multiple overhead resistance zones reduce confidence despite technically valid setup.
+Querying agent …
+[2026-04-09 01:45] NO TRADE  —  Immediate bearish FVG resistance at 71,198-71,293 blocks path to profitable targets, making 2:1 R:R achievable only by targeting levels that require breaking multiple overhead resistances.
+Querying agent …
+[2026-04-09 07:00] NO TRADE  —  BOS not confirmed - the 07:00 candle closed at 70,945.00 which is below the required BOS level of 71,022.10, invalidating the entry signal.
+Querying agent …
+────────────────────────────────────────────────────────────
+Trade #5  at  2026-04-09 15:00 UTC
+Direction:   BULLISH
+Entry:       71,128.40  (limit at BOS level)
+Stop Loss:   70,469.00  (risk 659.40)
+Take Profit: 72,447.20  (reward 1,318.80, 2:1 RR)
+Confidence:  HIGH
+Reasoning:   Valid bullish FVG with confirmed liquidity sweep and strong BOS displacement on high volume provides high-probability long setup with clear structure.
+Querying agent …
+[2026-04-10 09:30] NO TRADE  —  BOS confirmation is weak with price closing below the break level on HTF, and achieving required 2:1 RR requires targeting congested resistance zones between 72,500-73,000 where price was recently rejected.
+Querying agent …
+[2026-04-11 22:00] NO TRADE  —  BOS not confirmed by close (73,333.30 < 73,400.00 BOS level) and achievable R:R ratio of ~1.24:1 falls below the required 2:1 minimum for entry.
+Querying agent …
+[2026-04-13 04:00] NO TRADE  —  Valid bearish structure confirmed, but available take profit targets below current price cannot achieve the required 2:1 risk-reward ratio with stop loss above the swing high at 71,245.
+
+  Trade #1  BULLISH  →  WIN  (setup 2026-04-03 21:30 UTC)
+    Filled:  2026-04-03 21:45 UTC
+    Closed:  2026-04-04 11:00 UTC
+    Reasoning: Valid SMC setup with confirmed BOS and 2.1:1 RR achievable, but counter-trend nature, small FVG size, and multiple overhead resistances reduce probability of success.
+  Trade #2  BULLISH  →  LOSS  (setup 2026-04-04 15:00 UTC)
+    Filled:  2026-04-04 15:30 UTC
+    Closed:  2026-04-05 02:00 UTC
+    Reasoning: Clean textbook SMC setup with valid bullish FVG, confirmed liquidity sweep at swing low inside the FVG, definitive BOS confirmation with strong momentum, and favorable 4:1 risk-reward ratio targeting the bearish FVG bottom at 68,313.80.
+  Trade #3  BULLISH  →  CANCELED_TIMEOUT  (setup 2026-04-06 09:00 UTC)
+    Reasoning: Valid bullish FVG with confirmed BOS and strong momentum, but entry is late in the move requiring careful limit order placement for adequate R:R; the setup structure is sound but timing is not optimal.
+  Trade #4  BULLISH  →  WIN  (setup 2026-04-07 16:15 UTC)
+    Filled:  2026-04-07 16:45 UTC
+    Closed:  2026-04-07 20:00 UTC
+    Reasoning: Valid HTF bullish FVG with confirmed LTF swing low inside zone and BOS break, but marginal BOS confirmation (only 4 points above) and multiple overhead resistance zones reduce confidence despite technically valid setup.
+  Trade #5  BULLISH  →  CANCELED_PRICE  (setup 2026-04-09 15:00 UTC)
+    Reasoning: Valid bullish FVG with confirmed liquidity sweep and strong BOS displacement on high volume provides high-probability long setup with clear structure.
+
+============================================================
+AGENT TEST METRICS
+────────────────────────────────────────────────────────────
+Candles checked:      1229
+Setups detected:      17
+  No trade (filtered): 12
+Orders placed:        5
+  Canceled (price):   1
+  Canceled (timeout): 1
+  Filled:             3
+    Wins:             2
+    Losses:           1
+    Open (end):       0
+Win rate:             66.7%  (2 / 3)
+Net R:                +3.0R  (2 × +2R,  1 × -1R)
+============================================================

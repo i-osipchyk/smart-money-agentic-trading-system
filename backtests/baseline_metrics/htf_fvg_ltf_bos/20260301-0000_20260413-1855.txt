@@ -1,0 +1,329 @@
+Backtest:  htf_fvg_ltf_bos
+Symbol:    BTC/USDT:USDT
+HTF:       1h  (72 candles)
+LTF:       15m  (16 candles)
+Range:     2026-03-01 00:00 → 2026-04-13 18:55 UTC
+Mode:      baseline_metrics
+Timeout:   16 LTF candles
+Steps:     4204
+============================================================
+
+Fetching HTF (1h) data …
+  page 1 (since 2026-02-26 00:00 UTC) …
+  page 2 (since 2026-04-08 16:00 UTC) …
+  → 1123 candles
+
+Fetching LTF (15m) data …
+  page 1 (since 2026-02-28 20:00 UTC) …
+  page 2 (since 2026-03-11 06:00 UTC) …
+  page 3 (since 2026-03-21 16:00 UTC) …
+  page 4 (since 2026-04-01 02:00 UTC) …
+  page 5 (since 2026-04-11 12:00 UTC) …
+  → 4220 candles
+
+
+────────────────────────────────────────────────────────────
+Trade #1  detected at  2026-03-02 21:15 UTC
+Direction:   BULLISH
+Entry:       69,247.10  (limit at BOS level)
+Stop Loss:   68,519.00  (risk 728.10)
+Take Profit: 70,703.30  (reward 1,456.20, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #2  detected at  2026-03-03 04:45 UTC
+Direction:   BEARISH
+Entry:       68,142.10  (limit at BOS level)
+Stop Loss:   68,600.00  (risk 457.90)
+Take Profit: 67,226.30  (reward 915.80, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #3  detected at  2026-03-04 14:00 UTC
+Direction:   BULLISH
+Entry:       71,468.00  (limit at BOS level)
+Stop Loss:   70,559.00  (risk 909.00)
+Take Profit: 73,286.00  (reward 1,818.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #4  detected at  2026-03-05 01:45 UTC
+Direction:   BEARISH
+Entry:       72,511.50  (limit at BOS level)
+Stop Loss:   73,297.00  (risk 785.50)
+Take Profit: 70,940.50  (reward 1,571.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #5  detected at  2026-03-06 01:30 UTC
+Direction:   BULLISH
+Entry:       70,990.10  (limit at BOS level)
+Stop Loss:   70,339.00  (risk 651.10)
+Take Profit: 72,292.30  (reward 1,302.20, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #6  detected at  2026-03-06 07:15 UTC
+Direction:   BULLISH
+Entry:       70,628.70  (limit at BOS level)
+Stop Loss:   70,099.00  (risk 529.70)
+Take Profit: 71,688.10  (reward 1,059.40, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #7  detected at  2026-03-06 17:30 UTC
+Direction:   BEARISH
+Entry:       68,121.60  (limit at BOS level)
+Stop Loss:   69,081.00  (risk 959.40)
+Take Profit: 66,202.80  (reward 1,918.80, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #8  detected at  2026-03-10 00:30 UTC
+Direction:   BULLISH
+Entry:       69,005.00  (limit at BOS level)
+Stop Loss:   68,332.00  (risk 673.00)
+Take Profit: 70,351.00  (reward 1,346.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #9  detected at  2026-03-10 21:15 UTC
+Direction:   BEARISH
+Entry:       69,958.10  (limit at BOS level)
+Stop Loss:   70,376.00  (risk 417.90)
+Take Profit: 69,122.30  (reward 835.80, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #10  detected at  2026-03-13 03:45 UTC
+Direction:   BULLISH
+Entry:       71,260.90  (limit at BOS level)
+Stop Loss:   70,919.00  (risk 341.90)
+Take Profit: 71,944.70  (reward 683.80, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #11  detected at  2026-03-14 09:45 UTC
+Direction:   BEARISH
+Entry:       70,495.00  (limit at BOS level)
+Stop Loss:   70,708.00  (risk 213.00)
+Take Profit: 70,069.00  (reward 426.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #12  detected at  2026-03-16 03:30 UTC
+Direction:   BULLISH
+Entry:       72,980.10  (limit at BOS level)
+Stop Loss:   72,235.00  (risk 745.10)
+Take Profit: 74,470.30  (reward 1,490.20, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #13  detected at  2026-03-16 23:30 UTC
+Direction:   BULLISH
+Entry:       74,830.00  (limit at BOS level)
+Stop Loss:   74,200.00  (risk 630.00)
+Take Profit: 76,090.00  (reward 1,260.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #14  detected at  2026-03-17 14:30 UTC
+Direction:   BULLISH
+Entry:       74,167.20  (limit at BOS level)
+Stop Loss:   73,329.00  (risk 838.20)
+Take Profit: 75,843.60  (reward 1,676.40, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #15  detected at  2026-03-19 04:00 UTC
+Direction:   BEARISH
+Entry:       71,001.10  (limit at BOS level)
+Stop Loss:   71,599.00  (risk 597.90)
+Take Profit: 69,805.30  (reward 1,195.80, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #16  detected at  2026-03-20 06:00 UTC
+Direction:   BEARISH
+Entry:       70,515.00  (limit at BOS level)
+Stop Loss:   70,946.00  (risk 431.00)
+Take Profit: 69,653.00  (reward 862.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #17  detected at  2026-03-24 01:30 UTC
+Direction:   BEARISH
+Entry:       70,370.00  (limit at BOS level)
+Stop Loss:   71,081.00  (risk 711.00)
+Take Profit: 68,948.00  (reward 1,422.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #18  detected at  2026-03-24 18:00 UTC
+Direction:   BULLISH
+Entry:       69,305.00  (limit at BOS level)
+Stop Loss:   68,883.00  (risk 422.00)
+Take Profit: 70,149.00  (reward 844.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #19  detected at  2026-03-26 05:00 UTC
+Direction:   BEARISH
+Entry:       70,640.00  (limit at BOS level)
+Stop Loss:   70,946.00  (risk 306.00)
+Take Profit: 70,028.00  (reward 612.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #20  detected at  2026-03-26 08:15 UTC
+Direction:   BEARISH
+Entry:       69,815.40  (limit at BOS level)
+Stop Loss:   70,141.00  (risk 325.60)
+Take Profit: 69,164.20  (reward 651.20, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #21  detected at  2026-03-27 04:00 UTC
+Direction:   BEARISH
+Entry:       68,458.50  (limit at BOS level)
+Stop Loss:   69,144.00  (risk 685.50)
+Take Profit: 67,087.50  (reward 1,371.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #22  detected at  2026-03-28 21:45 UTC
+Direction:   BEARISH
+Entry:       66,795.00  (limit at BOS level)
+Stop Loss:   66,979.00  (risk 184.00)
+Take Profit: 66,427.00  (reward 368.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #23  detected at  2026-03-30 23:00 UTC
+Direction:   BEARISH
+Entry:       66,550.00  (limit at BOS level)
+Stop Loss:   66,975.00  (risk 425.00)
+Take Profit: 65,700.00  (reward 850.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #24  detected at  2026-04-01 15:45 UTC
+Direction:   BULLISH
+Entry:       68,773.90  (limit at BOS level)
+Stop Loss:   67,883.00  (risk 890.90)
+Take Profit: 70,555.70  (reward 1,781.80, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #25  detected at  2026-04-02 17:45 UTC
+Direction:   BEARISH
+Entry:       66,815.10  (limit at BOS level)
+Stop Loss:   67,401.00  (risk 585.90)
+Take Profit: 65,643.30  (reward 1,171.80, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #26  detected at  2026-04-04 19:00 UTC
+Direction:   BULLISH
+Entry:       67,350.00  (limit at BOS level)
+Stop Loss:   67,225.00  (risk 125.00)
+Take Profit: 67,600.00  (reward 250.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #27  detected at  2026-04-06 09:00 UTC
+Direction:   BULLISH
+Entry:       69,338.20  (limit at BOS level)
+Stop Loss:   68,769.00  (risk 569.20)
+Take Profit: 70,476.60  (reward 1,138.40, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #28  detected at  2026-04-07 06:00 UTC
+Direction:   BEARISH
+Entry:       68,510.50  (limit at BOS level)
+Stop Loss:   68,957.00  (risk 446.50)
+Take Profit: 67,617.50  (reward 893.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #29  detected at  2026-04-07 14:00 UTC
+Direction:   BEARISH
+Entry:       68,207.90  (limit at BOS level)
+Stop Loss:   68,615.00  (risk 407.10)
+Take Profit: 67,393.70  (reward 814.20, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #30  detected at  2026-04-09 01:45 UTC
+Direction:   BULLISH
+Entry:       70,857.00  (limit at BOS level)
+Stop Loss:   70,427.00  (risk 430.00)
+Take Profit: 71,717.00  (reward 860.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #31  detected at  2026-04-10 09:30 UTC
+Direction:   BULLISH
+Entry:       71,763.80  (limit at BOS level)
+Stop Loss:   71,381.00  (risk 382.80)
+Take Profit: 72,529.40  (reward 765.60, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #32  detected at  2026-04-11 22:00 UTC
+Direction:   BULLISH
+Entry:       73,400.00  (limit at BOS level)
+Stop Loss:   73,154.00  (risk 246.00)
+Take Profit: 73,892.00  (reward 492.00, 2:1 RR)
+────────────────────────────────────────────────────────────
+Trade #33  detected at  2026-04-13 04:00 UTC
+Direction:   BEARISH
+Entry:       70,941.40  (limit at BOS level)
+Stop Loss:   71,246.00  (risk 304.60)
+Take Profit: 70,332.20  (reward 609.20, 2:1 RR)
+
+  Trade #1  BULLISH  →  LOSS  (setup 2026-03-02 21:15 UTC)
+  Filled:      2026-03-02 22:00 UTC
+  Closed:      2026-03-03 02:00 UTC
+  Trade #2  BEARISH  →  WIN  (setup 2026-03-03 04:45 UTC)
+  Filled:      2026-03-03 05:00 UTC
+  Closed:      2026-03-03 08:45 UTC
+  Trade #3  BULLISH  →  WIN  (setup 2026-03-04 14:00 UTC)
+  Filled:      2026-03-04 14:30 UTC
+  Closed:      2026-03-04 15:45 UTC
+  Trade #4  BEARISH  →  LOSS  (setup 2026-03-05 01:45 UTC)
+  Filled:      2026-03-05 02:00 UTC
+  Closed:      2026-03-05 10:15 UTC
+  Trade #5  BULLISH  →  LOSS  (setup 2026-03-06 01:30 UTC)
+  Filled:      2026-03-06 02:15 UTC
+  Closed:      2026-03-06 04:30 UTC
+  Trade #6  BULLISH  →  LOSS  (setup 2026-03-06 07:15 UTC)
+  Filled:      2026-03-06 09:00 UTC
+  Closed:      2026-03-06 12:00 UTC
+  Trade #7  BEARISH  →  WIN  (setup 2026-03-06 17:30 UTC)
+  Filled:      2026-03-06 18:00 UTC
+  Closed:      2026-03-08 22:00 UTC
+  Trade #8  BULLISH  →  WIN  (setup 2026-03-10 00:30 UTC)
+  Filled:      2026-03-10 01:15 UTC
+  Closed:      2026-03-10 02:30 UTC
+  Trade #9  BEARISH  →  WIN  (setup 2026-03-10 21:15 UTC)
+  Filled:      2026-03-10 21:30 UTC
+  Closed:      2026-03-11 11:45 UTC
+  Trade #10  BULLISH  →  WIN  (setup 2026-03-13 03:45 UTC)
+  Filled:      2026-03-13 04:15 UTC
+  Closed:      2026-03-13 08:30 UTC
+  Trade #11  BEARISH  →  LOSS  (setup 2026-03-14 09:45 UTC)
+  Filled:      2026-03-14 10:00 UTC
+  Closed:      2026-03-14 11:45 UTC
+  Trade #12  BULLISH  →  CANCELED_TIMEOUT  (setup 2026-03-16 03:30 UTC)
+  Trade #13  BULLISH  →  LOSS  (setup 2026-03-16 23:30 UTC)
+  Filled:      2026-03-16 23:45 UTC
+  Closed:      2026-03-17 04:30 UTC
+  Trade #14  BULLISH  →  LOSS  (setup 2026-03-17 14:30 UTC)
+  Filled:      2026-03-17 14:45 UTC
+  Closed:      2026-03-18 11:30 UTC
+  Trade #15  BEARISH  →  CANCELED_PRICE  (setup 2026-03-19 04:00 UTC)
+  Trade #16  BEARISH  →  LOSS  (setup 2026-03-20 06:00 UTC)
+  Filled:      2026-03-20 07:15 UTC
+  Closed:      2026-03-20 08:00 UTC
+  Trade #17  BEARISH  →  LOSS  (setup 2026-03-24 01:30 UTC)
+  Filled:      2026-03-24 01:45 UTC
+  Closed:      2026-03-24 07:45 UTC
+  Trade #18  BULLISH  →  WIN  (setup 2026-03-24 18:00 UTC)
+  Filled:      2026-03-24 18:15 UTC
+  Closed:      2026-03-24 20:15 UTC
+  Trade #19  BEARISH  →  CANCELED_PRICE  (setup 2026-03-26 05:00 UTC)
+  Trade #20  BEARISH  →  WIN  (setup 2026-03-26 08:15 UTC)
+  Filled:      2026-03-26 08:30 UTC
+  Closed:      2026-03-26 11:15 UTC
+  Trade #21  BEARISH  →  WIN  (setup 2026-03-27 04:00 UTC)
+  Filled:      2026-03-27 04:15 UTC
+  Closed:      2026-03-27 10:30 UTC
+  Trade #22  BEARISH  →  CANCELED_PRICE  (setup 2026-03-28 21:45 UTC)
+  Trade #23  BEARISH  →  LOSS  (setup 2026-03-30 23:00 UTC)
+  Filled:      2026-03-30 23:15 UTC
+  Closed:      2026-03-31 00:45 UTC
+  Trade #24  BULLISH  →  LOSS  (setup 2026-04-01 15:45 UTC)
+  Filled:      2026-04-01 16:00 UTC
+  Closed:      2026-04-02 01:00 UTC
+  Trade #25  BEARISH  →  LOSS  (setup 2026-04-02 17:45 UTC)
+  Filled:      2026-04-02 18:45 UTC
+  Closed:      2026-04-04 15:00 UTC
+  Trade #26  BULLISH  →  LOSS  (setup 2026-04-04 19:00 UTC)
+  Filled:      2026-04-04 19:15 UTC
+  Closed:      2026-04-04 20:00 UTC
+  Trade #27  BULLISH  →  LOSS  (setup 2026-04-06 09:00 UTC)
+  Filled:      2026-04-06 12:45 UTC
+  Closed:      2026-04-06 23:00 UTC
+  Trade #28  BEARISH  →  LOSS  (setup 2026-04-07 06:00 UTC)
+  Filled:      2026-04-07 06:15 UTC
+  Closed:      2026-04-07 08:45 UTC
+  Trade #29  BEARISH  →  LOSS  (setup 2026-04-07 14:00 UTC)
+  Filled:      2026-04-07 15:45 UTC
+  Closed:      2026-04-07 17:30 UTC
+  Trade #30  BULLISH  →  WIN  (setup 2026-04-09 01:45 UTC)
+  Filled:      2026-04-09 02:00 UTC
+  Closed:      2026-04-09 15:30 UTC
+  Trade #31  BULLISH  →  WIN  (setup 2026-04-10 09:30 UTC)
+  Filled:      2026-04-10 09:45 UTC
+  Closed:      2026-04-10 14:00 UTC
+  Trade #32  BULLISH  →  LOSS  (setup 2026-04-11 22:00 UTC)
+  Filled:      2026-04-11 22:15 UTC
+  Closed:      2026-04-11 23:00 UTC
+  Trade #33  BEARISH  →  LOSS  (setup 2026-04-13 04:00 UTC)
+  Filled:      2026-04-13 04:15 UTC
+  Closed:      2026-04-13 13:45 UTC
+
+============================================================
+BASELINE METRICS
+────────────────────────────────────────────────────────────
+Candles checked:      4204
+Setups detected:      33
+  Canceled (price):   3
+  Canceled (timeout): 1
+  Filled:             29
+    Wins:             11
+    Losses:           18
+    Open (end):       0
+Win rate:             37.9%  (11 / 29)
+Net R:                +4.0R  (11 × +2R,  18 × -1R)
+============================================================

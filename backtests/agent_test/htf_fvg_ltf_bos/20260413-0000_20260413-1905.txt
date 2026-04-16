@@ -1,0 +1,38 @@
+Backtest:  htf_fvg_ltf_bos
+Symbol:    BTC/USDT:USDT
+HTF:       1h  (72 candles)
+LTF:       15m  (16 candles)
+Range:     2026-04-13 00:00 → 2026-04-13 19:05 UTC
+Mode:      agent_test
+Steps:     77
+============================================================
+
+Fetching HTF (1h) data …
+  page 1 (since 2026-04-10 00:00 UTC) …
+  → 92 candles
+
+Fetching LTF (15m) data …
+  page 1 (since 2026-04-12 20:00 UTC) …
+  → 93 candles
+
+
+Querying agent …
+[2026-04-13 04:00] NO TRADE  —  Despite valid FVG and BOS confirmation, the trade fails to meet the required 2:1 risk-reward ratio with available HTF target levels, and price has already extended significantly from recent highs.
+
+
+============================================================
+AGENT TEST METRICS
+────────────────────────────────────────────────────────────
+Candles checked:      77
+Setups detected:      1
+  No trade (filtered): 1
+Orders placed:        0
+  Canceled (price):   0
+  Canceled (timeout): 0
+  Filled:             0
+    Wins:             0
+    Losses:           0
+    Open (end):       0
+Win rate:             0.0%  (0 / 0)
+Net R:                +0.0R  (0 × +2R,  0 × -1R)
+============================================================

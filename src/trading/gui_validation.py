@@ -1,3 +1,4 @@
+import io
 import queue
 import sys
 import threading
@@ -15,8 +16,20 @@ from trading.core.models import Timeframe, TradeDecision, Trend
 from trading.data.backtest_datasource import BacktestDataSource
 from trading.data.binance_datasource import BinanceDataSource
 from trading.data.csv_datasource import CSVDataSource
-from trading.gui import QueueWriter
 from trading.strategies import HtfFvgLtfBos
+
+
+class QueueWriter(io.TextIOBase):
+    def __init__(self, q: "queue.Queue[str | None]") -> None:
+        self._q = q
+
+    def write(self, s: str) -> int:
+        if s:
+            self._q.put(s)
+        return len(s)
+
+    def flush(self) -> None:
+        pass
 
 _TF_VALUES = ["5m", "15m", "1h", "4h", "1d"]
 _TF_SECONDS: dict[str, int] = {
