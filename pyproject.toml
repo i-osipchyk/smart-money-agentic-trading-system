@@ -10,15 +10,13 @@ requires-python = ">=3.13"
 dependencies = [
     "ccxt>=4.5.48",
     "langchain-anthropic>=1.4.0",
-    "langgraph>=1.1.6",
     "pandas>=3.0.2",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.2",
 ]
 
 [project.scripts]
-trading     = "trading:main"
-trading-gui = "trading.gui:main"
+trading-validate = "trading.gui_validation:main"
 
 [build-system]
 requires = ["uv_build>=0.11.6,<0.12.0"]
@@ -58,7 +56,6 @@ module = [
     "ccxt",
     "langchain_anthropic",
     "langchain_core.*",
-    "langgraph.*",
 ]
 ignore_missing_imports = true
 ignore_errors = true

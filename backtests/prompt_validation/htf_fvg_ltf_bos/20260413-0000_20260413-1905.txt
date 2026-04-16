@@ -1,0 +1,206 @@
+Backtest:  htf_fvg_ltf_bos
+Symbol:    BTC/USDT:USDT
+HTF:       1h  (72 candles)
+LTF:       15m  (16 candles)
+Range:     2026-04-13 00:00 → 2026-04-13 19:05 UTC
+Mode:      prompt_validation
+Steps:     77
+============================================================
+
+Fetching HTF (1h) data …
+  page 1 (since 2026-04-10 00:00 UTC) …
+  → 92 candles
+
+Fetching LTF (15m) data …
+  page 1 (since 2026-04-12 20:00 UTC) …
+  → 93 candles
+
+
+────────────────────────────────────────────────────────────
+Setup #1  at  2026-04-13 04:00 UTC
+────────────────────────────────────────────────────────────
+You are a professional cryptocurrency trader specializing in Smart Money Concepts (SMC).
+
+## Input Data
+Symbol:     BTC/USDT:USDT
+HTF:        1h  (72 candles)
+LTF:        15m  (16 candles)
+HTF range:  2026-04-10 05:00 → 2026-04-13 04:00
+LTF range:  2026-04-13 00:15 → 2026-04-13 04:00
+FVG offset: 1.0 %
+
+## Strategy
+HTF FVG + LTF BOS (Fair Value Gap with Break of Structure confirmation)
+
+Entry logic:
+1. [HTF] Identify all valid Fair Value Gaps (FVGs).
+   - Bullish FVG: candle[i+1].low > candle[i-1].high — an upward price gap.
+     Invalidated when any subsequent candle closes below the gap bottom.
+   - Bearish FVG: candle[i+1].high < candle[i-1].low — a downward price gap.
+     Invalidated when any subsequent candle closes above the gap top.
+
+2. [LTF] Bullish setup:
+   a. The lowest LTF swing low lies inside a valid bullish HTF FVG, or just
+      below it within the configured offset (% of FVG range).
+   b. A prior LTF swing high (the last one before the swing low) acts as the
+      Break of Structure (BOS) level.
+   c. Price closes above that BOS level after the swing low — confirming the
+      bullish directional shift.
+
+3. [LTF] Bearish setup:
+   a. The highest LTF swing high lies inside a valid bearish HTF FVG, or just
+      above it within the configured offset.
+   b. A prior LTF swing low (the last one before the swing high) acts as the
+      BOS level.
+   c. Price closes below that BOS level after the swing high — confirming the
+      bearish directional shift.
+
+4. [LTF] Stop Loss:
+    - For bullish entries: just below the swing low (which is inside the FVG).
+    - For bearish entries: just above the swing high (which is inside the FVG).
+
+5. [HTF] Take Profit:
+    - For bullish entries: swing highs or low of bearish FVG.
+    - For bearish entries: swing lows or high of bullish FVG.
+
+6. [LTF] Entry Order:
+    For both bullish and bearish setups, limit order which gives risk-reward at least 2:1 based on the defined stop loss and take profit levels.
+
+The HTF FVG is the Point of Interest (POI) / demand or supply zone.
+The LTF swing point marks the liquidity sweep / wick into that zone.
+The BOS confirms that smart money has absorbed liquidity and is pushing price.
+
+## Detected Setup BEARISH
+
+### HTF Point of Interest
+HTF FVG (Point of Interest)
+  Top:    71,384.30
+  Bottom: 71,117.20
+  Formed: 2026-04-12 12:00
+
+### LTF Confirmation
+Highest LTF Swing High (inside FVG)
+  Price:  71,245.00
+  At:     2026-04-13 02:30
+
+Prior LTF Swing Low (BOS level)
+  Price:  70,941.40
+  At:     2026-04-13 02:00
+
+Break of Structure (BOS)
+  Level:  70,941.40
+  Closed below BOS at: 2026-04-13 04:00
+
+### Potential Targets
+HTF Swing Lows (TP candidates, nearest first)
+  1. 73,155.00  (2026-04-11 21:00)
+  2. 72,669.10  (2026-04-10 22:00)
+  3. 72,615.00  (2026-04-11 01:00)
+  4. 72,580.00  (2026-04-11 09:00)
+  5. 72,566.40  (2026-04-11 06:00)
+  6. 72,451.90  (2026-04-11 13:00)
+  7. 71,868.50  (2026-04-10 13:00)
+  8. 71,541.40  (2026-04-12 07:00)
+  9. 71,382.10  (2026-04-10 07:00)
+  10. 71,369.70  (2026-04-12 05:00)
+  11. 71,309.70  (2026-04-12 10:00)
+  12. 71,259.00  (2026-04-12 01:00)
+  13. 70,920.40  (2026-04-12 20:00)
+  14. 70,566.50  (2026-04-12 15:00)
+  15. 70,458.20  (2026-04-12 22:00)
+
+Valid HTF Bullish FVGs — top as TP level (nearest first)
+  (none)
+
+## HTF Candles (1h, 72 candles)
+timestamp                    open         high          low        close         volume
+--------------------------------------------------------------------------------------
+2026-04-10 05:00         72088.80     72243.60     71973.80     72098.60      2811.7130
+2026-04-10 06:00         72098.40     72154.80     71759.00     71778.10      3516.1030
+2026-04-10 07:00         71778.10     71821.10     71382.10     71461.20      7061.7260
+2026-04-10 08:00         71461.20     71730.00     71395.00     71571.60      5531.5980
+2026-04-10 09:00         71571.60     71840.80     71555.80     71746.20      3388.6170
+2026-04-10 10:00         71746.10     71910.00     71658.80     71872.40      3363.7480
+2026-04-10 11:00         71872.50     72229.00     71861.50     72092.70      6834.2690
+2026-04-10 12:00         72092.80     72467.30     71960.50     72225.50     12107.3610
+2026-04-10 13:00         72225.40     72381.00     71868.50     72284.00      7453.3520
+2026-04-10 14:00         72283.90     73123.90     72209.80     72870.60     24555.6430
+2026-04-10 15:00         72870.60     73255.70     72309.50     72421.00     13827.1090
+2026-04-10 16:00         72421.10     73024.10     72350.00     72954.00      8170.9200
+2026-04-10 17:00         72954.00     73125.10     72750.00     73079.90      4994.3950
+2026-04-10 18:00         73079.90     73127.60     72830.70     73056.70      4415.0060
+2026-04-10 19:00         73056.70     73223.40     72850.50     73187.30      5777.6840
+2026-04-10 20:00         73187.40     73450.00     72995.80     73310.50      8258.7640
+2026-04-10 21:00         73310.50     73311.50     72883.70     73156.20      2777.0800
+2026-04-10 22:00         73156.20     73213.40     72669.10     72834.20      4476.9230
+2026-04-10 23:00         72834.20     72925.00     72744.10     72917.40      2435.6610
+2026-04-11 00:00         72917.40     72917.40     72730.80     72792.50      1856.2800
+2026-04-11 01:00         72792.50     72972.50     72615.00     72920.10      3067.2070
+2026-04-11 02:00         72920.10     73066.20     72872.60     72928.30      3039.4810
+2026-04-11 03:00         72928.20     73048.50     72769.40     72835.10      2161.0310
+2026-04-11 04:00         72835.10     72921.50     72633.50     72771.20      4560.2840
+2026-04-11 05:00         72771.30     72800.00     72631.00     72680.00      2073.1600
+2026-04-11 06:00         72680.00     72738.00     72566.40     72727.50      2678.3170
+2026-04-11 07:00         72727.50     72790.90     72630.00     72707.70      2594.5820
+2026-04-11 08:00         72707.80     72767.50     72595.00     72625.40      1952.4280
+2026-04-11 09:00         72625.40     72883.00     72580.00     72874.00      3161.3840
+2026-04-11 10:00         72874.10     72886.00     72723.20     72801.20      1747.5760
+2026-04-11 11:00         72801.30     72874.10     72781.40     72868.20      1252.5930
+2026-04-11 12:00         72868.20     72945.00     72760.30     72895.60      2157.5330
+2026-04-11 13:00         72895.60     72895.60     72451.90     72612.20      6262.7900
+2026-04-11 14:00         72612.30     72728.50     72560.40     72660.90      1953.3070
+2026-04-11 15:00         72660.80     72869.90     72638.80     72817.30      2043.7150
+2026-04-11 16:00         72817.30     73180.00     72775.30     72991.30      5048.9430
+2026-04-11 17:00         72991.30     73140.80     72900.10     73056.20      2137.2390
+2026-04-11 18:00         73056.20     73700.00     72990.20     73515.90     10134.8650
+2026-04-11 19:00         73515.90     73773.40     73400.40     73635.90      6313.7420
+2026-04-11 20:00         73635.90     73648.80     73183.50     73252.90      3776.1690
+2026-04-11 21:00         73252.80     73500.00     73155.00     73384.70      2632.3470
+2026-04-11 22:00         73384.70     73529.00     73183.40     73333.30      3102.6540
+2026-04-11 23:00         73333.30     73333.40     72861.20     73013.40      4462.0430
+2026-04-12 00:00         73013.40     73077.60     72817.40     73038.80      2584.7900
+2026-04-12 01:00         73038.70     73094.40     71259.00     71598.70     25394.3450
+2026-04-12 02:00         71598.70     72000.00     71302.00     71723.70     10553.1140
+2026-04-12 03:00         71723.70     71831.80     71556.30     71563.60      4636.9330
+2026-04-12 04:00         71563.60     71656.30     71407.70     71428.70      3979.5900
+2026-04-12 05:00         71428.70     71750.00     71369.70     71665.10      4332.2980
+2026-04-12 06:00         71665.00     71728.00     71602.00     71618.90      2011.7670
+2026-04-12 07:00         71618.80     71716.20     71541.40     71628.10      1699.9340
+2026-04-12 08:00         71628.20     71750.00     71555.00     71592.30      1973.3220
+2026-04-12 09:00         71592.40     71600.00     71461.70     71502.40      1676.2160
+2026-04-12 10:00         71502.30     71655.20     71309.70     71416.10      2947.0510
+2026-04-12 11:00         71416.10     71510.00     71384.30     71435.00      2223.5040
+2026-04-12 12:00         71435.00     71478.00     71000.00     71050.10      8813.3530
+2026-04-12 13:00         71050.00     71117.20     70818.70     70861.50     11631.8880
+2026-04-12 14:00         70861.40     71063.80     70655.60     70714.30      7906.2140
+2026-04-12 15:00         70714.30     70898.00     70566.50     70856.20      6590.0070
+2026-04-12 16:00         70856.10     70926.70     70777.00     70890.90      2601.4190
+2026-04-12 17:00         70890.80     71188.00     70853.10     71099.90      4177.0120
+2026-04-12 18:00         71100.00     71177.30     71010.00     71092.60      2607.7670
+2026-04-12 19:00         71092.50     71199.00     71034.60     71055.20      2131.6140
+2026-04-12 20:00         71055.20     71417.90     70920.40     71302.90      5128.9010
+2026-04-12 21:00         71302.80     71423.90     71110.30     71331.70      2565.0080
+2026-04-12 22:00         71331.40     71332.40     70458.20     70875.60     13082.4500
+2026-04-12 23:00         70875.50     70882.40     70533.00     70711.10      3574.4920
+2026-04-13 00:00         70711.20     71225.00     70574.00     71130.00      5326.4910
+2026-04-13 01:00         71129.90     71193.60     70990.70     71156.10      3835.1310
+2026-04-13 02:00         71156.00     71245.00     70941.40     71047.00      3419.4610
+2026-04-13 03:00         71047.00     71128.80     70874.40     70944.80      2551.5180
+2026-04-13 04:00         70944.80     71114.90     70812.70     70854.30      2218.7090
+
+## Task
+Analyze the detected setup in the context of the HTF candle data above.
+Determine whether this is a valid, high-probability trade entry.
+Provide your reasoning and a clear decision.
+
+## Required Response Format
+After your analysis, end your response with **exactly** this block (replace the values, keep the keys verbatim):
+
+```decision
+should_trade: YES or NO
+confidence: HIGH, MEDIUM, or LOW
+reasoning: one-sentence summary of the decisive factor
+```
+
+============================================================
+Done. Setups found: 1 / 77 candles checked.

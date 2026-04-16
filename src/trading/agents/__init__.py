@@ -1,3 +1,3 @@
-from trading.agents.graph import build_graph
+from trading.agents.trade_validation_agent import TradeValidationAgent
 
-__all__ = ["build_graph"]
+__all__ = ["TradeValidationAgent"]

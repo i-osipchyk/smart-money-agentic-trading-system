@@ -1,6 +1,6 @@
 # Smart Money Agentic Trading System
 
-An AI-powered trading system that applies Smart Money Concepts through a two-agent LangGraph architecture — one agent for macro context, one for trade execution decisions.
+An AI-powered trading system that applies Smart Money Concepts through a strategy + agent architecture — strategies deterministically detect setups, Claude validates them.
 
 ## Why Smart Money
 
@@ -8,66 +8,81 @@ Smart Money Concepts (SMC) model market structure around institutional behavior 
 
 ## Why Agentic
 
-SMC can be implemented with deterministic rules, but context matters enormously. The same Fair Value Gap means something different in an uptrend versus a ranging market. Using LLM agents allows the system to reason about context rather than pattern-match against rigid conditions — making it more adaptive and easier to extend without rewriting logic.
+SMC can be implemented with deterministic rules, but context matters enormously. The same Fair Value Gap means something different in an uptrend versus a ranging market. Using an LLM agent to validate setups allows the system to reason about context rather than pattern-match against rigid conditions — making it more adaptive and easier to extend without rewriting logic.
 
 ## What the System Does
 
-### Timeframes
+### Pipeline
 
-- HTF (4H / 1D): determines market structure, trend direction, and Points of Interest (POI). Can incorporate external context such as macro news and sentiment.
-- LTF (15m / 5m): looks for confirmation of HTF thesis, and defines the specific entry point, Stop Loss (SL), and Take Profit (TP). A secondary lower timeframe is used if the primary does not provide enough signal.
+1. A **Strategy** runs deterministic signal detection across HTF and LTF candles and returns a `StrategySetup` — a fully specified entry with pre-computed entry price, stop loss, and take profit.
+2. The **TradeValidationAgent** receives the setup, builds a structured prompt, and asks Claude to assess whether the setup is valid given current market structure.
+3. Claude returns a `TradeDecision`: trade or no trade, with direction, levels, confidence, and one-sentence reasoning.
 
-If HTF finds a valid POI, the system hands off to LTF to confirm or discard the setup. No confirmation → no trade.
+### Current Strategy: HtfFvgLtfBos
 
-### Core Concepts (PoC)
+| Step | Timeframe | Signal | Purpose |
+|---|---|---|---|
+| 1 | HTF (4H/1D) | Fair Value Gap (FVG) | Identifies a price inefficiency as the Point of Interest |
+| 2 | LTF (15m/5m) | Break of Structure (BOS) | Confirms price is reacting from the HTF FVG |
+| 3 | — | Levels | Entry at BOS level, SL beyond prior swing, TP at next FVG |
 
-| Concept | Used on | Purpose |
-|---|---|---|
-| `FVG` — Fair Value Gap | HTF + LTF | Identifies price inefficiencies as POIs and entry zones |
-| `BOS` — Break of Structure | LTF | Confirms trend continuation or reversal |
-| Fractals | HTF + LTF | Locates swing highs/lows to define structure |
+No LTF confirmation → no setup returned → agent not called.
 
 ### Data
 
-All data access goes through a DataSource protocol — a typed interface that any implementation must satisfy. Swapping Binance for a CSV file (or any other source) requires no changes to agent logic.
+All data access goes through a `DataSource` protocol — a typed interface any implementation must satisfy. Current implementations: CSV files (offline testing), Binance via `ccxt` (live/past), and a `BacktestDataSource` that streams historical windows for backtesting.
 
 Initial pairs: BTC/USDT and ETH/USDT on Binance.
 
 ## Architecture
 
-### PoC Architecture
-
-![image](pod_architecture.svg)
-
-- DataSource Interface allows to connect different data sources without changing any internal structure of the application.
-- HTF Data is fed into HTF Agent, that decides context and looks for a POI that aligns with this context
-- The output is passed to MarketState, and consequently fed to LTF Agent, together with LTF Data
-- LTF Agent decides on orders with a reasoning
-
-### Production Architecture
-
-TBD
+```
+CSVDataSource / BinanceDataSource / BacktestDataSource
+        ↓
+   Strategy.detect_entry()
+   - Detects fractals + FVGs on HTF
+   - Confirms BOS on LTF
+   - Computes entry, SL, TP
+   - Returns StrategySetup (or None)
+        ↓
+   TradeValidationAgent
+   - Builds structured prompt
+   - Calls Claude
+   - Returns TradeDecision
+```
 
 ## Roadmap
 
-1. PoC — two-agent loop on hand-picked historical examples. Goal: validate the FVG + BOS logic produces sensible decisions. Output is plain text.
-2. Backtesting — run the full two-agent system over a validation period of BTC/ETH data. Build a structured trade log with PnL, win rate, and risk metrics.
-3. Paper trading — connect to Binance testnet. System runs live but places no real orders. Monitor latency and decision quality.
-4. Live trading — real orders with hard position size limits. Risk management layer added before this phase.
-5. Continuous improvement — agents review past trade logs and surface patterns. Concept library expanded (order blocks, liquidity, CHoCH).
+1. PoC — CSV data, signal detection validated ✓
+2. Strategy + Validation Agent — deterministic setups + Claude validation ✓
+3. Backtesting — run strategy + agent over historical data, measure PnL and win rate (in progress)
+4. Paper trading — connect to Binance testnet, live data, simulated orders
+5. Live trading — real orders with hard position size limits
 
-## Tech Stack (PoC)
+## Tech Stack
 
 | Layer | Tool | Why |
 |---|---|---|
-| Language | Python 3.11+ | Strong typing, dataclasses, async support |
-| Agent orchestration | LangGraph | Stateful multi-agent graphs with explicit handoffs |
-| LLM | Claude (Anthropic) | Reasoning and contextual analysis |
+| Language | Python 3.13+ | Strong typing, modern enums, async support |
+| LLM | Claude (Anthropic) via `langchain-anthropic` | Contextual reasoning for setup validation |
 | Market data | `ccxt` + Binance API | Unified exchange interface, easy to swap |
-| Data validation | Pydantic v2 | Runtime type safety for market data models |
+| Data validation | Pydantic v2 | Runtime type safety for market data and strategy models |
 | Packaging | `pyproject.toml` + `uv` | Modern, fast dependency management |
 | Linting / types | `ruff` + `mypy` | Catch errors before runtime |
 
 ## How to Run
 
-TBD
+```bash
+# Install dependencies
+uv sync
+
+# Add your Anthropic API key to .env
+echo "ANTHROPIC_API_KEY=sk-..." > .env
+
+# Launch the validation GUI
+uv run trading-validate
+```
+
+The GUI has two tabs:
+- **One-Time Validation** — run the strategy on a single snapshot (CSV, past, or live data), optionally send the setup to the agent
+- **Backtest** — run the strategy + agent across a historical date range and see aggregated win rate and R metrics

@@ -3,7 +3,7 @@ import pandas as pd
 from trading.core.models import Fractal, Timeframe
 
 
-def detect_fractals(df: pd.DataFrame, timeframe: Timeframe, window: int = 2) -> list[Fractal]:
+def detect_fractals(df: pd.DataFrame, timeframe: Timeframe, window: int = 1) -> list[Fractal]:
     """
     Detect fractal swing highs and lows.
 
