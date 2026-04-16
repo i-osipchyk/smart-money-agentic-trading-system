@@ -3,6 +3,8 @@ import queue
 import sys
 import threading
 import tkinter as tk
+from collections.abc import Callable
+from typing import TypedDict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tkinter import ttk
@@ -12,7 +14,7 @@ from trading.agents.trade_validation_agent import (
     build_prompt,
     parse_decision,
 )
-from trading.core.models import Timeframe, TradeDecision, Trend
+from trading.core.models import StrategySetup, Timeframe, TradeDecision, Trend
 from trading.data.backtest_datasource import BacktestDataSource
 from trading.data.binance_datasource import BinanceDataSource
 from trading.data.csv_datasource import CSVDataSource
@@ -372,8 +374,8 @@ class ValidationGUI:
 
         old_stdout, old_stderr = sys.stdout, sys.stderr
         writer: QueueWriter = QueueWriter(self._output_queue)
-        sys.stdout = writer  # type: ignore[assignment]
-        sys.stderr = writer  # type: ignore[assignment]
+        sys.stdout = writer
+        sys.stderr = writer
 
         try:
             if source_raw == "csv":
@@ -537,19 +539,16 @@ class ValidationGUI:
         # Tee: write to the queue (→ UI) and collect for file output
         gui_self = self
 
-        class _Tee:
+        class _Tee(io.TextIOBase):
             def write(self_t, s: str) -> int:  # noqa: N805
                 gui_self._output_queue.put(s)
                 output_lines.append(s)
                 return len(s)
 
-            def flush(self_t) -> None:  # noqa: N805
-                pass
-
         old_stdout, old_stderr = sys.stdout, sys.stderr
         tee = _Tee()
-        sys.stdout = tee  # type: ignore[assignment]
-        sys.stderr = tee  # type: ignore[assignment]
+        sys.stdout = tee
+        sys.stderr = tee
 
         try:
             print(f"Backtest:  {strategy.name}")
@@ -614,6 +613,22 @@ class ValidationGUI:
 
     # ----------------------------------------- shared simulation engine
 
+    class _Order(TypedDict):
+        trade_num: int
+        setup_dt: datetime
+        direction: Trend
+        entry: float
+        sl: float
+        tp: float | None
+        risk: float
+        reasoning: str
+        confidence: str
+        filled: bool
+        fill_dt: datetime | None
+        candles_waiting: int
+        result: str | None
+        close_dt: datetime | None
+
     def _simulate_trades(
         self,
         bt_source: BacktestDataSource,
@@ -624,7 +639,7 @@ class ValidationGUI:
         order_timeout: int,
         out_path: Path,
         output_lines: list[str],
-        get_decision: object,   # Callable[[StrategySetup], TradeDecision | None]
+        get_decision: Callable[[StrategySetup], TradeDecision | None],
         metrics_title: str,
     ) -> None:
         """
@@ -650,8 +665,8 @@ class ValidationGUI:
         def _ts(dt: datetime) -> str:
             return dt.strftime("%Y-%m-%d %H:%M")
 
-        active_order: dict | None = None
-        trades: list[dict] = []
+        active_order: ValidationGUI._Order | None = None
+        trades: list[ValidationGUI._Order] = []
         skipped_no_trade = 0
         step_num = 0
 
@@ -754,18 +769,20 @@ class ValidationGUI:
                 continue
 
             # ---- decision callback ------------------------------------------
-            td: TradeDecision | None = get_decision(setup)  # type: ignore[operator]
+            td: TradeDecision | None = get_decision(setup)
             if td is None or not td.should_trade:
                 skipped_no_trade += 1
                 print(f"[{_ts(current_dt)}] NO TRADE  —  {td.reasoning if td else '—'}")
                 continue
 
             trade_num = len(trades) + 1
-            risk = abs(td.entry_price - td.stop_loss)  # type: ignore[arg-type]
+            assert td.direction is not None
+            assert td.entry_price is not None and td.stop_loss is not None
+            risk = abs(td.entry_price - td.stop_loss)
 
             print("─" * 60)
             print(f"Trade #{trade_num}  at  {_ts(current_dt)} UTC")
-            print(f"Direction:   {td.direction.value.upper()}")  # type: ignore[union-attr]
+            print(f"Direction:   {td.direction.value.upper()}")
             print(f"Entry:       {_FMT.format(td.entry_price)}  (limit at BOS level)")
             print(f"Stop Loss:   {_FMT.format(td.stop_loss)}  (risk {_FMT.format(risk)})")
             print(f"Take Profit: {_FMT.format(td.take_profit)}  "
@@ -773,22 +790,22 @@ class ValidationGUI:
             print(f"Confidence:  {td.confidence}")
             print(f"Reasoning:   {td.reasoning}")
 
-            active_order = {
-                "trade_num": trade_num,
-                "setup_dt": current_dt,
-                "direction": td.direction,
-                "entry": td.entry_price,
-                "sl": td.stop_loss,
-                "tp": td.take_profit,
-                "risk": risk,
-                "reasoning": td.reasoning,
-                "confidence": td.confidence,
-                "filled": False,
-                "fill_dt": None,
-                "candles_waiting": 0,
-                "result": None,
-                "close_dt": None,
-            }
+            active_order = ValidationGUI._Order(
+                trade_num=trade_num,
+                setup_dt=current_dt,
+                direction=td.direction,
+                entry=td.entry_price,
+                sl=td.stop_loss,
+                tp=td.take_profit,
+                risk=risk,
+                reasoning=td.reasoning,
+                confidence=td.confidence,
+                filled=False,
+                fill_dt=None,
+                candles_waiting=0,
+                result=None,
+                close_dt=None,
+            )
 
         if active_order is not None:
             active_order["result"] = "OPEN"
@@ -801,9 +818,9 @@ class ValidationGUI:
             result = t["result"]
             print(f"  Trade #{t['trade_num']}  {t['direction'].value.upper()}"
                   f"  →  {result}  (setup {_ts(t['setup_dt'])} UTC)")
-            if t["fill_dt"]:
+            if t["fill_dt"] is not None:
                 print(f"    Filled:  {_ts(t['fill_dt'])} UTC")
-            if t["close_dt"] and result in ("WIN", "LOSS"):
+            if t["close_dt"] is not None and result in ("WIN", "LOSS"):
                 print(f"    Closed:  {_ts(t['close_dt'])} UTC")
             if t["reasoning"] != "baseline":
                 print(f"    Reasoning: {t['reasoning']}")
@@ -856,15 +873,14 @@ class ValidationGUI:
         out_path: Path,
         output_lines: list[str],
     ) -> None:
-        def get_decision(setup: object) -> TradeDecision:
-            s = setup  # type: ignore[assignment]
+        def get_decision(setup: StrategySetup) -> TradeDecision:
             return TradeDecision(
                 symbol=symbol,
                 should_trade=True,
-                direction=s.direction,
-                entry_price=s.entry,
-                stop_loss=s.stop_loss,
-                take_profit=s.take_profit,
+                direction=setup.direction,
+                entry_price=setup.entry,
+                stop_loss=setup.stop_loss,
+                take_profit=setup.take_profit,
                 reasoning="baseline",
                 confidence="n/a",
             )
@@ -889,12 +905,10 @@ class ValidationGUI:
     ) -> None:
         agent = TradeValidationAgent()
 
-        def get_decision(setup: object) -> TradeDecision:
-            s = setup  # type: ignore[assignment]
+        def get_decision(setup: StrategySetup) -> TradeDecision:
             print("Querying agent …")
-            response = agent.run(build_prompt(s))
-            td = parse_decision(symbol, response, s)
-            return td
+            response = agent.run(build_prompt(setup))
+            return parse_decision(symbol, response, setup)
 
         self._simulate_trades(
             bt_source, strategy, symbol, htf_tf, ltf_tf,

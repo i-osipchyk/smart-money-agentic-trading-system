@@ -21,7 +21,7 @@ Usage::
         ...
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta, timezone
 
 import ccxt
@@ -95,7 +95,7 @@ class BacktestDataSource:
         """Total number of LTF candle steps in the backtest range."""
         return (self._bt_to_ts - self._bt_from_ts) // self._ltf_step + 1
 
-    def prepare(self, progress: object = None) -> None:
+    def prepare(self, progress: Callable[[str], None] | None = None) -> None:
         """
         Fetch all required candle data from Binance.  Call once before
         iterating.
@@ -105,8 +105,8 @@ class BacktestDataSource:
                       progress messages during the fetch (e.g. ``print``).
         """
         def _log(msg: str) -> None:
-            if callable(progress):
-                progress(msg)  # type: ignore[operator]
+            if progress is not None:
+                progress(msg)
 
         _log(f"Fetching HTF ({self._htf_tf}) data …")
         self._htf_df = self._fetch_all(self._htf_tf, self._htf_fetch_from, self._fetch_to, _log)
@@ -152,7 +152,7 @@ class BacktestDataSource:
         timeframe: str,
         since: datetime,
         until: datetime,
-        log: object,
+        log: Callable[[str], None] | None,
     ) -> pd.DataFrame:
         """Paginate through Binance and return a single sorted DataFrame."""
         tf_ms = _TF_SECONDS[timeframe] * 1000
@@ -164,8 +164,8 @@ class BacktestDataSource:
         while True:
             page += 1
             since_ms = int(current_since.timestamp() * 1000)
-            if callable(log):
-                log(f"  page {page} (since {current_since.strftime('%Y-%m-%d %H:%M')} UTC) …")  # type: ignore[operator]
+            if log is not None:
+                log(f"  page {page} (since {current_since.strftime('%Y-%m-%d %H:%M')} UTC) …")
 
             raw = self._exchange.fetch_ohlcv(
                 self._symbol, timeframe, since=since_ms, limit=_FETCH_LIMIT
