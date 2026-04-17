@@ -32,8 +32,8 @@ from trading.notifiers.telegram import TelegramNotifier
 from trading.strategies import HtfFvgLtfBos
 from trading.strategies.base import Strategy
 
+logging.getLogger().setLevel(logging.INFO)  # root — covers all trading.* loggers
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 # ---------------------------------------------------------------------------
 # Strategy registry — add new strategies here as they are implemented

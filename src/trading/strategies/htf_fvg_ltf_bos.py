@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -7,6 +8,8 @@ from trading.core.models import FVG, Fractal, StrategySetup, Timeframe, Trend
 from trading.signals.fractals import detect_fractals
 from trading.signals.fvg import detect_fvg
 from trading.strategies.base import Strategy
+
+logger = logging.getLogger(__name__)
 
 _DESCRIPTION = """\
 HTF FVG + LTF BOS (Fair Value Gap with Break of Structure confirmation)
@@ -98,6 +101,8 @@ class HtfFvgLtfBos(Strategy):
         htf_fractals = detect_fractals(htf_df, htf_timeframe)
         ltf_fractals = detect_fractals(ltf_df, ltf_timeframe)
 
+        _log_findings(htf_fvgs, ltf_fractals, self._fvg_offset_pct)
+
         signal = _find_signal(htf_fvgs, ltf_fractals, ltf_df, self._fvg_offset_pct)
         if signal is None:
             return None
@@ -121,6 +126,54 @@ class HtfFvgLtfBos(Strategy):
 
 
 # ------------------------------------------------------------------ internals
+
+def _log_findings(
+    htf_fvgs: list[FVG],
+    ltf_fractals: list[Fractal],
+    fvg_offset_pct: float,
+) -> None:
+    logger.info("HTF FVGs found: %d", len(htf_fvgs))
+    for fvg in htf_fvgs:
+        logger.info(
+            "  FVG [%s] top=%.2f bottom=%.2f formed=%s",
+            fvg.trend.value,
+            fvg.top,
+            fvg.bottom,
+            fvg.timestamp.strftime("%Y-%m-%d %H:%M"),
+        )
+
+    logger.info("LTF fractals found: %d", len(ltf_fractals))
+    for f in ltf_fractals:
+        kind = "high" if f.is_high else "low"
+        logger.info(
+            "  Fractal [%s] price=%.2f at=%s",
+            kind,
+            f.price,
+            f.timestamp.strftime("%Y-%m-%d %H:%M"),
+        )
+
+    inside: list[tuple[Fractal, FVG]] = []
+    for f in ltf_fractals:
+        for fvg in htf_fvgs:
+            offset = (fvg.top - fvg.bottom) * fvg_offset_pct
+            low = fvg.bottom - offset
+            high = fvg.top + offset
+            if low <= f.price <= high:
+                inside.append((f, fvg))
+
+    logger.info("LTF fractals inside an HTF FVG (±offset): %d", len(inside))
+    for f, fvg in inside:
+        kind = "high" if f.is_high else "low"
+        logger.info(
+            "  Fractal [%s] price=%.2f at=%s  →  FVG [%s] bottom=%.2f top=%.2f",
+            kind,
+            f.price,
+            f.timestamp.strftime("%Y-%m-%d %H:%M"),
+            fvg.trend.value,
+            fvg.bottom,
+            fvg.top,
+        )
+
 
 def _find_signal(
     htf_fvgs: list[FVG],
