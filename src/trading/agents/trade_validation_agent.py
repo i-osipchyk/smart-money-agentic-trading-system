@@ -1,12 +1,11 @@
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
+from trading.agents.llm_provider import DEFAULT_CONFIG, LLMConfig, create_llm_client
 from trading.core.models import StrategySetup, TradeDecision
 
 load_dotenv()
-
-_MODEL = "claude-opus-4-5"
 
 # Sentinel string that separates free-form reasoning from the parseable block.
 _DECISION_FENCE = "```decision"
@@ -125,8 +124,8 @@ def parse_decision(symbol: str, response: str, setup: StrategySetup) -> TradeDec
 
 
 class TradeValidationAgent:
-    def __init__(self, model: str = _MODEL) -> None:
-        self._llm = ChatAnthropic(model_name=model)  # type: ignore[call-arg]
+    def __init__(self, config: LLMConfig = DEFAULT_CONFIG) -> None:
+        self._llm: BaseChatModel = create_llm_client(config)
 
     def run(self, prompt: str) -> str:
         """

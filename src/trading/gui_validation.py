@@ -4,11 +4,12 @@ import sys
 import threading
 import tkinter as tk
 from collections.abc import Callable
-from typing import TypedDict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tkinter import ttk
+from typing import TypedDict
 
+from trading.agents.llm_provider import PROVIDERS, LLMConfig
 from trading.agents.trade_validation_agent import (
     TradeValidationAgent,
     build_prompt,
@@ -68,6 +69,12 @@ class ValidationGUI:
         # Offset in tenths of a percent (1 = 0.1 %, 10 = 1.0 %)
         self._offset_var = tk.StringVar(value="10")
 
+        # LLM provider/model selection — shared across both tabs
+        _default_provider = next(iter(PROVIDERS))
+        self._provider_var = tk.StringVar(value=_default_provider)
+        self._model_var = tk.StringVar(value=PROVIDERS[_default_provider][0])
+        self._model_combos: list[ttk.Combobox] = []
+
         # Backtest-specific vars
         now = datetime.now(UTC)
         self._bt_from_var = tk.StringVar(
@@ -93,6 +100,7 @@ class ValidationGUI:
 
         self._ltf_tf_var.trace_add("write", lambda *_: self._refresh_until_default())
         self._source_var.trace_add("write", lambda *_: self._on_source_change())
+        self._provider_var.trace_add("write", lambda *_: self._on_provider_change())
 
     # ------------------------------------------------------------------ layout
 
@@ -184,6 +192,37 @@ class ValidationGUI:
         ttk.Spinbox(
             opt_inner, textvariable=self._offset_var, from_=0, to=1000, width=5
         ).grid(row=0, column=1, sticky=tk.W)
+
+        # --- Model ---
+        model_frame = ttk.LabelFrame(parent, text="Model", padding=8)
+        model_frame.pack(fill=tk.X, pady=(0, 8))
+
+        model_inner = ttk.Frame(model_frame)
+        model_inner.pack(fill=tk.X)
+
+        ttk.Label(model_inner, text="Provider").grid(
+            row=0, column=0, sticky=tk.W, padx=(0, 6), pady=(0, 4)
+        )
+        ttk.Combobox(
+            model_inner,
+            textvariable=self._provider_var,
+            values=list(PROVIDERS),
+            state="readonly",
+            width=12,
+        ).grid(row=0, column=1, sticky=tk.W, pady=(0, 4))
+
+        ttk.Label(model_inner, text="Model").grid(
+            row=1, column=0, sticky=tk.W, padx=(0, 6)
+        )
+        model_combo = ttk.Combobox(
+            model_inner,
+            textvariable=self._model_var,
+            values=PROVIDERS.get(self._provider_var.get(), []),
+            state="readonly",
+            width=28,
+        )
+        model_combo.grid(row=1, column=1, sticky=tk.W)
+        self._model_combos.append(model_combo)
 
     # --------------------------------------------------------- validation tab
 
@@ -297,6 +336,13 @@ class ValidationGUI:
         self._bt_submit_btn.pack(fill=tk.X)
 
     # ----------------------------------------------------------- dynamic state
+
+    def _on_provider_change(self) -> None:
+        provider = self._provider_var.get()
+        models = PROVIDERS.get(provider, [])
+        self._model_var.set(models[0] if models else "")
+        for combo in self._model_combos:
+            combo["values"] = models
 
     def _on_source_change(self) -> None:
         source = self._source_var.get()
@@ -437,7 +483,12 @@ class ValidationGUI:
             else:
                 prompt = build_prompt(setup)
                 print("Sending to agent...\n")
-                agent = TradeValidationAgent()
+                agent = TradeValidationAgent(
+                    LLMConfig(
+                        provider=self._provider_var.get(),
+                        model=self._model_var.get(),
+                    )
+                )
                 print(agent.run(prompt))
 
         except Exception as exc:
@@ -532,7 +583,11 @@ class ValidationGUI:
             else _BACKTEST_DIR / "baseline_metrics" / strategy.name
         )
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{from_str}_{to_str}.txt"
+        if mode == "agent":
+            llm_tag = f"_{self._provider_var.get()}_{self._model_var.get()}"
+        else:
+            llm_tag = ""
+        out_path = out_dir / f"{from_str}_{to_str}{llm_tag}.txt"
 
         output_lines: list[str] = []
 
@@ -903,7 +958,12 @@ class ValidationGUI:
         out_path: Path,
         output_lines: list[str],
     ) -> None:
-        agent = TradeValidationAgent()
+        agent = TradeValidationAgent(
+            LLMConfig(
+                provider=self._provider_var.get(),
+                model=self._model_var.get(),
+            )
+        )
 
         def get_decision(setup: StrategySetup) -> TradeDecision:
             print("Querying agent …")
