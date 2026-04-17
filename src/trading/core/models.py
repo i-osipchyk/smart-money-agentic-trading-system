@@ -40,6 +40,7 @@ class TradeDecision(BaseModel):
     entry_price: float | None = None
     stop_loss: float | None = None
     take_profit: float | None = None
+    is_market_order: bool = False  # True when entry is already through the BOS close
     reasoning: str
     confidence: str
 
@@ -52,6 +53,7 @@ class StrategySetup(BaseModel):
     confirm_details: str
     target: str
     candles: str
-    entry: float
+    entry: float            # BOS level — used for RR feasibility check
     stop_loss: float
-    take_profit: float
+    bos_candle_close: float  # close of the LTF candle that confirmed BOS
+    take_profit: float | None = None  # determined by the agent

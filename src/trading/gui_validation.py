@@ -489,7 +489,34 @@ class ValidationGUI:
                         model=self._model_var.get(),
                     )
                 )
-                print(agent.run(prompt))
+                response = agent.run(prompt)
+                print(response)
+                td = parse_decision(symbol, response, setup)
+                print("\n" + "─" * 44)
+                print("TRADE DECISION")
+                print("─" * 44)
+                if td.should_trade:
+                    assert td.direction is not None
+                    assert td.entry_price is not None
+                    assert td.stop_loss is not None
+                    assert td.take_profit is not None
+                    order_type = (
+                        "MARKET — fills at next candle open"
+                        if td.is_market_order
+                        else "LIMIT"
+                    )
+                    print(f"Direction:   {td.direction.value.upper()}")
+                    print(f"Order Type:  {order_type}")
+                    print(f"Entry:       {td.entry_price:,.2f}")
+                    print(f"Stop Loss:   {td.stop_loss:,.2f}")
+                    print(f"Take Profit: {td.take_profit:,.2f}")
+                    risk = abs(td.entry_price - td.stop_loss)
+                    reward = abs(td.take_profit - td.entry_price)
+                    print(f"RR:          {reward / risk:.2f}:1")
+                    print(f"Confidence:  {td.confidence}")
+                else:
+                    print("NO TRADE")
+                    print(f"Reason: {td.reasoning}")
 
         except Exception as exc:
             print(f"\n[ERROR] {exc}")
@@ -676,6 +703,7 @@ class ValidationGUI:
         sl: float
         tp: float | None
         risk: float
+        is_market_order: bool
         reasoning: str
         confidence: str
         filled: bool
@@ -737,7 +765,41 @@ class ValidationGUI:
                 if not o["filled"]:
                     o["candles_waiting"] += 1
 
-                    # Cancel: price reached TP before the order was filled
+                    if o["is_market_order"] and o["candles_waiting"] == 1:
+                        # Market order: fill at this candle's open (next candle
+                        # after the BOS candle); update entry to actual fill price.
+                        o["entry"] = float(candle["open"])
+                        o["filled"] = True
+                        o["fill_dt"] = current_dt
+                        if bullish:
+                            if candle["low"] <= o["sl"]:
+                                o["result"] = "LOSS"
+                                o["close_dt"] = current_dt
+                                trades.append(o)
+                                active_order = None
+                                continue
+                            if candle["high"] >= o["tp"]:
+                                o["result"] = "WIN"
+                                o["close_dt"] = current_dt
+                                trades.append(o)
+                                active_order = None
+                                continue
+                        else:
+                            if candle["high"] >= o["sl"]:
+                                o["result"] = "LOSS"
+                                o["close_dt"] = current_dt
+                                trades.append(o)
+                                active_order = None
+                                continue
+                            if candle["low"] <= o["tp"]:
+                                o["result"] = "WIN"
+                                o["close_dt"] = current_dt
+                                trades.append(o)
+                                active_order = None
+                                continue
+                        continue  # filled, pending resolution
+
+                    # Cancel: price reached TP before the limit order was filled
                     if (bullish and candle["high"] >= o["tp"]) or \
                        (not bullish and candle["low"] <= o["tp"]):
                         o["result"] = "CANCELED_PRICE"
@@ -746,7 +808,7 @@ class ValidationGUI:
                         active_order = None
                         continue
 
-                    # Fill check
+                    # Limit fill check
                     filled_this_candle = (
                         (bullish and candle["low"] <= o["entry"]) or
                         (not bullish and candle["high"] >= o["entry"])
@@ -833,15 +895,24 @@ class ValidationGUI:
             trade_num = len(trades) + 1
             assert td.direction is not None
             assert td.entry_price is not None and td.stop_loss is not None
+            assert td.take_profit is not None
             risk = abs(td.entry_price - td.stop_loss)
+            reward = abs(td.take_profit - td.entry_price)
+            order_label = (
+                "market — fills at next open"
+                if td.is_market_order
+                else "limit order"
+            )
 
             print("─" * 60)
             print(f"Trade #{trade_num}  at  {_ts(current_dt)} UTC")
             print(f"Direction:   {td.direction.value.upper()}")
-            print(f"Entry:       {_FMT.format(td.entry_price)}  (limit at BOS level)")
-            print(f"Stop Loss:   {_FMT.format(td.stop_loss)}  (risk {_FMT.format(risk)})")
-            print(f"Take Profit: {_FMT.format(td.take_profit)}  "
-                  f"(reward {_FMT.format(2 * risk)}, 2:1 RR)")
+            print(f"Order Type:  {order_label}")
+            print(f"Entry:       {_FMT.format(td.entry_price)}")
+            print(f"Stop Loss:   {_FMT.format(td.stop_loss)}"
+                  f"  (risk {_FMT.format(risk)})")
+            print(f"Take Profit: {_FMT.format(td.take_profit)}"
+                  f"  (reward {_FMT.format(reward)}, {reward / risk:.2f}:1 RR)")
             print(f"Confidence:  {td.confidence}")
             print(f"Reasoning:   {td.reasoning}")
 
@@ -853,6 +924,7 @@ class ValidationGUI:
                 sl=td.stop_loss,
                 tp=td.take_profit,
                 risk=risk,
+                is_market_order=td.is_market_order,
                 reasoning=td.reasoning,
                 confidence=td.confidence,
                 filled=False,
@@ -929,13 +1001,18 @@ class ValidationGUI:
         output_lines: list[str],
     ) -> None:
         def get_decision(setup: StrategySetup) -> TradeDecision:
+            risk = abs(setup.entry - setup.stop_loss)
+            if setup.direction == Trend.BULLISH:
+                baseline_tp = setup.entry + 2 * risk
+            else:
+                baseline_tp = setup.entry - 2 * risk
             return TradeDecision(
                 symbol=symbol,
                 should_trade=True,
                 direction=setup.direction,
                 entry_price=setup.entry,
                 stop_loss=setup.stop_loss,
-                take_profit=setup.take_profit,
+                take_profit=baseline_tp,
                 reasoning="baseline",
                 confidence="n/a",
             )

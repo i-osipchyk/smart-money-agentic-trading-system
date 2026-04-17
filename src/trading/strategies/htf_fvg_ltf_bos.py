@@ -38,12 +38,17 @@ Entry logic:
     - For bullish entries: just below the swing low (which is inside the FVG).
     - For bearish entries: just above the swing high (which is inside the FVG).
 
-5. [HTF] Take Profit:
-    - For bullish entries: swing highs or low of bearish FVG.
-    - For bearish entries: swing lows or high of bullish FVG.
+5. [HTF] Take Profit (agent-selected):
+    - Candidates for bullish entries: HTF swing highs and bearish FVG bottoms.
+    - Candidates for bearish entries: HTF swing lows and bullish FVG tops.
+    - Candidates are sorted by recency (most recent first) and provided to the agent.
+    - The agent selects the target that best fits the current market structure.
 
 6. [LTF] Entry Order:
-    For both bullish and bearish setups, limit order which gives risk-reward at least 2:1 based on the defined stop loss and take profit levels.
+    - The BOS level is the natural entry. If reward-to-risk at BOS with the agent-chosen
+      TP is at least 1:1, a limit order is placed between the BOS and the stop loss to
+      achieve exactly 2:1 RR.
+    - If RR at BOS is less than 1:1, no trade is taken.
 
 The HTF FVG is the Point of Interest (POI) / demand or supply zone.
 The LTF swing point marks the liquidity sweep / wick into that zone.
@@ -102,7 +107,7 @@ class HtfFvgLtfBos(Strategy):
         if signal is None:
             return None
 
-        entry, stop_loss, take_profit = _compute_levels(signal)
+        entry, stop_loss = _compute_levels(signal)
 
         return StrategySetup(
             input_data=_format_input_data(
@@ -116,7 +121,7 @@ class HtfFvgLtfBos(Strategy):
             candles=_format_candles(htf_df, htf_timeframe),
             entry=entry,
             stop_loss=stop_loss,
-            take_profit=take_profit,
+            bos_candle_close=float(ltf_df.iloc[-1]["close"]),
         )
 
 
@@ -201,27 +206,23 @@ def _find_signal(
 
 # --------------------------------------------------------- level computation
 
-def _compute_levels(signal: _EntrySignal) -> tuple[float, float, float]:
+def _compute_levels(signal: _EntrySignal) -> tuple[float, float]:
     """
-    Return (entry, stop_loss, take_profit) for a baseline limit order.
+    Return (entry, stop_loss).
 
-    - Entry:      BOS level (limit order placed at the prior swing that was broken).
-    - Stop Loss:  1 unit beyond the swing point that entered the FVG, rounded to
-                  the nearest integer (floor for bullish, ceil for bearish).
-    - Take Profit: 2:1 reward/risk relative to entry.
+    - Entry:     BOS level — used for RR feasibility check; the final limit-order
+                 entry is computed by the agent layer once a TP is selected.
+    - Stop Loss: 1 unit beyond the swing point that entered the FVG, rounded to
+                 the nearest integer (floor for bullish, ceil for bearish).
     """
     entry = signal.bos_level
 
     if signal.direction == Trend.BULLISH:
         stop_loss = float(round(signal.swing_point.price) - 1)
-        risk = entry - stop_loss
-        take_profit = entry + 2 * risk
     else:
         stop_loss = float(round(signal.swing_point.price) + 1)
-        risk = stop_loss - entry
-        take_profit = entry - 2 * risk
 
-    return entry, stop_loss, take_profit
+    return entry, stop_loss
 
 
 # ------------------------------------------------------------ formatters
@@ -290,21 +291,25 @@ def _format_target(fvgs: list[FVG], fractals: list[Fractal], direction: Trend) -
     lines: list[str] = []
 
     if direction == Trend.BULLISH:
-        # TP candidates: swing highs above (sorted ascending — nearest first)
-        highs = sorted([f for f in fractals if f.is_high], key=lambda f: f.price)
-        lines.append("HTF Swing Highs (TP candidates, nearest first)")
+        # TP candidates: swing highs sorted by recency — most recent structure first
+        highs = sorted(
+            [f for f in fractals if f.is_high], key=lambda f: f.timestamp, reverse=True
+        )
+        lines.append("HTF Swing Highs (TP candidates, most recent first)")
         if highs:
             for i, f in enumerate(highs, 1):
                 lines.append(f"  {i}. {_fmt(f.price)}  ({_ts(f.timestamp)})")
         else:
             lines.append("  (none)")
 
-        # TP candidates: bearish FVG bottoms (price tends to reach the low of supply zone)
+        # TP candidates: bearish FVG bottoms sorted by recency
         lines.append("")
         bearish = sorted(
-            [f for f in fvgs if f.trend == Trend.BEARISH], key=lambda f: f.bottom
+            [f for f in fvgs if f.trend == Trend.BEARISH],
+            key=lambda f: f.timestamp,
+            reverse=True,
         )
-        lines.append("Valid HTF Bearish FVGs — bottom as TP level (nearest first)")
+        lines.append("Valid HTF Bearish FVGs — bottom as TP level (most recent first)")
         if bearish:
             for i, fvg in enumerate(bearish, 1):
                 lines.append(
@@ -315,21 +320,25 @@ def _format_target(fvgs: list[FVG], fractals: list[Fractal], direction: Trend) -
             lines.append("  (none)")
 
     else:  # BEARISH
-        # TP candidates: swing lows below (sorted descending — nearest first)
-        lows = sorted([f for f in fractals if not f.is_high], key=lambda f: f.price, reverse=True)
-        lines.append("HTF Swing Lows (TP candidates, nearest first)")
+        # TP candidates: swing lows sorted by recency — most recent structure first
+        lows = sorted(
+            [f for f in fractals if not f.is_high], key=lambda f: f.timestamp, reverse=True
+        )
+        lines.append("HTF Swing Lows (TP candidates, most recent first)")
         if lows:
             for i, f in enumerate(lows, 1):
                 lines.append(f"  {i}. {_fmt(f.price)}  ({_ts(f.timestamp)})")
         else:
             lines.append("  (none)")
 
-        # TP candidates: bullish FVG tops (price tends to reach the high of demand zone)
+        # TP candidates: bullish FVG tops sorted by recency
         lines.append("")
         bullish = sorted(
-            [f for f in fvgs if f.trend == Trend.BULLISH], key=lambda f: f.top, reverse=True
+            [f for f in fvgs if f.trend == Trend.BULLISH],
+            key=lambda f: f.timestamp,
+            reverse=True,
         )
-        lines.append("Valid HTF Bullish FVGs — top as TP level (nearest first)")
+        lines.append("Valid HTF Bullish FVGs — top as TP level (most recent first)")
         if bullish:
             for i, fvg in enumerate(bullish, 1):
                 lines.append(
