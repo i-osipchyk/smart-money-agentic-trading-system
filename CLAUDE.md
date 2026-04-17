@@ -59,21 +59,43 @@ CSVDataSource / BinanceDataSource / BacktestDataSource
    TradeDecision (should_trade, direction, entry, stop_loss, take_profit, reasoning, confidence)
 ```
 
+### Live Deployment Pipeline (Lambda)
+
+```
+EventBridge cron (every LTF interval)
+        ↓
+   lambda_handler.handler()
+   - Reads STRATEGY, SYMBOL, timeframes from env vars
+   - Fetches live HTF + LTF candles via BinanceDataSource
+   - Runs selected strategy from _STRATEGY_REGISTRY
+        ↓  (only if setup found)
+   MODE=prompt  →  TelegramNotifier.send_chunked(build_prompt(setup))
+   MODE=agent   →  (not yet implemented)
+```
+
+To add a new strategy or symbol: run `setup_aws.sh` with different env vars. No code changes needed — the `STRATEGY` env var selects from `_STRATEGY_REGISTRY` in `lambda_handler.py`.
+
 ### Key Directories
 
 ```
 src/trading/
-├── core/           # Pydantic models + DataSource protocol
-├── signals/        # Pure detection functions (FVG, Fractals)
-├── strategies/     # Strategy base class + concrete strategies
-├── agents/         # TradeValidationAgent (prompt builder + Claude caller)
-├── data/           # DataSource implementations (CSV, Binance, Backtest)
+├── core/              # Pydantic models + DataSource protocol
+├── signals/           # Pure detection functions (FVG, Fractals)
+├── strategies/        # Strategy base class + concrete strategies
+├── agents/            # TradeValidationAgent (prompt builder + Claude caller)
+├── data/              # DataSource implementations (CSV, Binance, Backtest)
+├── notifiers/         # TelegramNotifier (stdlib urllib, chunked sending)
+├── lambda_handler.py  # AWS Lambda entry point + strategy registry
 └── gui_validation.py  # Tkinter GUI: one-time validation + backtest tabs
 
-tests/unit/         # Unit tests for signal detectors
-data/               # Sample CSV files
-backtests/          # Saved backtest outputs
-docs/adr/           # Architecture Decision Records
+tests/unit/            # Unit tests for signal detectors
+data/                  # Sample CSV files
+backtests/             # Saved backtest outputs
+docs/adr/              # Architecture Decision Records
+Dockerfile             # Lambda container image
+setup_aws.sh           # One-time AWS infrastructure setup per Lambda
+deploy.sh              # Build + push image, update all Lambda functions
+stack-*.env            # Per-deployment env var files (gitignored)
 ```
 
 ---
@@ -158,6 +180,7 @@ See `docs/adr/` for rationale behind key design choices:
 - **ADR-001**: Original two-agent architecture (HTF + LTF) — superseded
 - **ADR-002**: `DataSource` protocol for pluggable data sources
 - **ADR-003**: Strategy + TradeValidationAgent replacing the two-agent LangGraph pipeline
+- **ADR-004**: AWS Lambda containerized deployment with strategy registry pattern
 
 ---
 
@@ -165,7 +188,8 @@ See `docs/adr/` for rationale behind key design choices:
 
 The project follows a staged rollout:
 1. PoC — CSV data, signal detection validated ✓
-2. Strategy + Validation Agent — deterministic setups + Claude validation (current)
+2. Strategy + Validation Agent — deterministic setups + Claude validation ✓
 3. Backtesting — historical signal + agent validation with PnL metrics (in progress)
-4. Paper trading — live data, simulated orders
-5. Live trading — real order execution
+4. Live deployment — containerized Lambda, EventBridge trigger, Telegram notifications ✓
+5. Paper trading — live data, simulated orders
+6. Live trading — real order execution

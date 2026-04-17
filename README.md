@@ -51,13 +51,42 @@ CSVDataSource / BinanceDataSource / BacktestDataSource
    - Returns TradeDecision
 ```
 
+## Live Deployment (AWS Lambda)
+
+The system can run continuously on AWS Lambda, triggered on each LTF candle close by an EventBridge scheduled rule. Each Lambda instance runs one strategy on one symbol; adding more is a config change, not a code change.
+
+All dependencies are packaged into a Docker image (no Lambda layers). One shared ECR repo serves all functions.
+
+**First deployment:**
+```bash
+# Copy and fill in your values
+cp stack-example.env stack-htf-fvg-ltf-bos-btc.env
+
+# Create all AWS infrastructure and deploy
+source stack-htf-fvg-ltf-bos-btc.env && ./setup_aws.sh
+
+# Test the function manually
+aws lambda invoke --function-name trading-signals-htf-fvg-ltf-bos-btc \
+  --region us-east-1 /tmp/out.json && cat /tmp/out.json
+```
+
+**Deploy a code update** (updates all `trading-signals-*` functions at once):
+```bash
+AWS_ACCOUNT_ID=... AWS_REGION=... ./deploy.sh
+```
+
+**Prompt validation mode** (`MODE=prompt`): when a setup is detected, the raw Claude prompt is sent to a Telegram bot instead of being forwarded to Claude. Use this to verify the strategy is detecting correctly before enabling the full agent loop.
+
+See [docs/adr/004-lambda-deployment-architecture.md](docs/adr/004-lambda-deployment-architecture.md) for the full design rationale.
+
 ## Roadmap
 
 1. PoC — CSV data, signal detection validated ✓
 2. Strategy + Validation Agent — deterministic setups + Claude validation ✓
 3. Backtesting — run strategy + agent over historical data, measure PnL and win rate (in progress)
-4. Paper trading — connect to Binance testnet, live data, simulated orders
-5. Live trading — real orders with hard position size limits
+4. Live deployment — containerized Lambda, EventBridge trigger, Telegram notifications ✓
+5. Paper trading — connect to Binance testnet, live data, simulated orders
+6. Live trading — real orders with hard position size limits
 
 ## Tech Stack
 
