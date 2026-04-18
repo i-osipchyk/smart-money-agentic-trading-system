@@ -194,7 +194,7 @@ def _find_signal(
     bearish_fvgs = [f for f in htf_fvgs if f.trend == Trend.BEARISH]
 
     # ---------------------------------------------------------------- bullish
-    for swing_low in reversed(swing_lows):
+    for swing_low in sorted(swing_lows, key=lambda f: f.price):
         for fvg in reversed(bullish_fvgs):
             offset = (fvg.top - fvg.bottom) * fvg_offset_pct
             if (fvg.bottom - offset) <= swing_low.price <= fvg.top:
@@ -222,7 +222,7 @@ def _find_signal(
                     )
 
     # ---------------------------------------------------------------- bearish
-    for swing_high in reversed(swing_highs):
+    for swing_high in sorted(swing_highs, key=lambda f: f.price, reverse=True):
         for fvg in reversed(bearish_fvgs):
             offset = (fvg.top - fvg.bottom) * fvg_offset_pct
             if fvg.bottom <= swing_high.price <= (fvg.top + offset):

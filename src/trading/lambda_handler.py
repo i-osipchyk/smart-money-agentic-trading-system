@@ -93,6 +93,14 @@ def handler(event: dict, context: object) -> dict:
     htf_df = _datasource.get_ohlcv(_SYMBOL, _HTF_TF.value, _HTF_LIMIT)
     ltf_df = _datasource.get_ohlcv(_SYMBOL, _LTF_TF.value, _LTF_LIMIT)
 
+    # Drop the last candle if it is still forming (its close time is in the future).
+    # Candle duration is derived from the data to avoid hardcoding the interval.
+    candle_duration = ltf_df["timestamp"].iloc[-1] - ltf_df["timestamp"].iloc[-2]
+    last_candle_close = ltf_df["timestamp"].iloc[-1] + candle_duration
+    if invocation_time < last_candle_close.to_pydatetime().replace(tzinfo=UTC):
+        ltf_df = ltf_df.iloc[:-1]
+        logger.info("Dropped incomplete LTF candle (closes at %s)", last_candle_close)
+
     setup = _strategy.detect_entry(_SYMBOL, htf_df, _HTF_TF, ltf_df, _LTF_TF)
 
     if setup is None:
