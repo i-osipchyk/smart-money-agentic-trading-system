@@ -194,18 +194,18 @@ def _find_signal(
     bearish_fvgs = [f for f in htf_fvgs if f.trend == Trend.BEARISH]
 
     # ---------------------------------------------------------------- bullish
-    if swing_lows and bullish_fvgs:
-        lowest_swing_low = min(swing_lows, key=lambda f: f.price)
-
+    for swing_low in reversed(swing_lows):
         for fvg in reversed(bullish_fvgs):
             offset = (fvg.top - fvg.bottom) * fvg_offset_pct
-            if (fvg.bottom - offset) <= lowest_swing_low.price <= fvg.top:
-                prior_highs = [h for h in swing_highs if h.timestamp < lowest_swing_low.timestamp]
+            if (fvg.bottom - offset) <= swing_low.price <= fvg.top:
+                if swing_low.timestamp <= fvg.timestamp:
+                    continue
+                prior_highs = [h for h in swing_highs if h.timestamp < swing_low.timestamp]
                 if not prior_highs:
                     continue
 
                 prior_swing_high = prior_highs[-1]
-                candles_after = ltf_df[ltf_df["timestamp"] > lowest_swing_low.timestamp]
+                candles_after = ltf_df[ltf_df["timestamp"] > swing_low.timestamp]
                 bos_rows = candles_after[candles_after["close"] > prior_swing_high.price]
 
                 if not bos_rows.empty:
@@ -215,25 +215,25 @@ def _find_signal(
                     return _EntrySignal(
                         direction=Trend.BULLISH,
                         fvg=fvg,
-                        swing_point=lowest_swing_low,
+                        swing_point=swing_low,
                         prior_swing=prior_swing_high,
                         bos_candle_timestamp=bos_candle["timestamp"],
                         bos_level=prior_swing_high.price,
                     )
 
     # ---------------------------------------------------------------- bearish
-    if swing_highs and bearish_fvgs:
-        highest_swing_high = max(swing_highs, key=lambda f: f.price)
-
+    for swing_high in reversed(swing_highs):
         for fvg in reversed(bearish_fvgs):
             offset = (fvg.top - fvg.bottom) * fvg_offset_pct
-            if fvg.bottom <= highest_swing_high.price <= (fvg.top + offset):
-                prior_lows = [lo for lo in swing_lows if lo.timestamp < highest_swing_high.timestamp]
+            if fvg.bottom <= swing_high.price <= (fvg.top + offset):
+                if swing_high.timestamp <= fvg.timestamp:
+                    continue
+                prior_lows = [lo for lo in swing_lows if lo.timestamp < swing_high.timestamp]
                 if not prior_lows:
                     continue
 
                 prior_swing_low = prior_lows[-1]
-                candles_after = ltf_df[ltf_df["timestamp"] > highest_swing_high.timestamp]
+                candles_after = ltf_df[ltf_df["timestamp"] > swing_high.timestamp]
                 bos_rows = candles_after[candles_after["close"] < prior_swing_low.price]
 
                 if not bos_rows.empty:
@@ -243,7 +243,7 @@ def _find_signal(
                     return _EntrySignal(
                         direction=Trend.BEARISH,
                         fvg=fvg,
-                        swing_point=highest_swing_high,
+                        swing_point=swing_high,
                         prior_swing=prior_swing_low,
                         bos_candle_timestamp=bos_candle["timestamp"],
                         bos_level=prior_swing_low.price,

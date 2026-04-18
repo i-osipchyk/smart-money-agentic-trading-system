@@ -34,7 +34,7 @@ def detect_fvg(df: pd.DataFrame, timeframe: Timeframe) -> list[FVG]:
             if not (subsequent_closes < bottom).any():
                 fvgs.append(
                     FVG(
-                        timestamp=curr["timestamp"],
+                        timestamp=nxt["timestamp"],
                         top=nxt["low"],
                         bottom=bottom,
                         trend=Trend.BULLISH,
@@ -48,7 +48,7 @@ def detect_fvg(df: pd.DataFrame, timeframe: Timeframe) -> list[FVG]:
             if not (subsequent_closes > top).any():
                 fvgs.append(
                     FVG(
-                        timestamp=curr["timestamp"],
+                        timestamp=nxt["timestamp"],
                         top=top,
                         bottom=nxt["high"],
                         trend=Trend.BEARISH,
