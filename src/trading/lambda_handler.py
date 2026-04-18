@@ -12,7 +12,7 @@ SYMBOL              ccxt perpetual futures symbol, e.g. BTC/USDT:USDT
 HTF_TIMEFRAME       Higher timeframe value, e.g. 1h
 LTF_TIMEFRAME       Lower timeframe value, e.g. 15m
 HTF_LIMIT           Number of HTF candles to fetch (default: 72)
-LTF_LIMIT           Number of LTF candles to fetch (default: 16)
+LTF_LIMIT           Number of LTF candles to fetch (default: 24)
 FVG_OFFSET_SPINUNITS  Integer offset units (default: 10 → 0.01 = 1%)
 MODE                Execution mode: prompt | agent (default: prompt)
 TELEGRAM_BOT_TOKEN  Telegram bot token (required in prompt mode)
@@ -56,7 +56,7 @@ _SYMBOL = os.environ["SYMBOL"]
 _HTF_TF = Timeframe(os.environ["HTF_TIMEFRAME"])
 _LTF_TF = Timeframe(os.environ["LTF_TIMEFRAME"])
 _HTF_LIMIT = int(os.environ.get("HTF_LIMIT", "72"))
-_LTF_LIMIT = int(os.environ.get("LTF_LIMIT", "16"))
+_LTF_LIMIT = int(os.environ.get("LTF_LIMIT", "24"))
 _FVG_OFFSET = int(os.environ.get("FVG_OFFSET_SPINUNITS", "10")) / 1000.0
 _MODE = os.environ.get("MODE", "prompt")
 

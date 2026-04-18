@@ -50,8 +50,8 @@ class ValidationGUI:
     def __init__(self, root: tk.Tk) -> None:
         self._root = root
         self._root.title("Trade Validation — SMC Entry Detector")
-        self._root.geometry("1100x680")
-        self._root.minsize(800, 500)
+        self._root.geometry("1100x900")
+        self._root.minsize(800, 00)
 
         self._output_queue: queue.Queue[str | None] = queue.Queue()
 
@@ -64,7 +64,7 @@ class ValidationGUI:
         self._htf_tf_var = tk.StringVar(value="1h")
         self._ltf_tf_var = tk.StringVar(value="15m")
         self._htf_limit_var = tk.StringVar(value="72")
-        self._ltf_limit_var = tk.StringVar(value="16")
+        self._ltf_limit_var = tk.StringVar(value="24")
         self._symbol_var = tk.StringVar(value="BTC/USDT:USDT")
         # Offset in tenths of a percent (1 = 0.1 %, 10 = 1.0 %)
         self._offset_var = tk.StringVar(value="10")
@@ -83,6 +83,7 @@ class ValidationGUI:
         self._bt_to_var = tk.StringVar(value=now.strftime("%Y-%m-%d %H:%M"))
         self._bt_mode_var = tk.StringVar(value="prompt")
         self._bt_timeout_var = tk.StringVar(value="10")
+        self._bt_max_risk_var = tk.StringVar(value="1.0")
 
         # Typed widget refs — set during layout
         self._csv_frame: ttk.Frame
@@ -328,6 +329,13 @@ class ValidationGUI:
         ttk.Spinbox(
             bl_inner, textvariable=self._bt_timeout_var, from_=1, to=500, width=5
         ).grid(row=0, column=1, sticky=tk.W)
+        ttk.Label(bl_inner, text="Max risk (% of entry)").grid(
+            row=1, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
+        )
+        ttk.Spinbox(
+            bl_inner, textvariable=self._bt_max_risk_var,
+            from_=0.1, to=100.0, increment=0.1, format="%.1f", width=5
+        ).grid(row=1, column=1, sticky=tk.W, pady=(4, 0))
 
         # --- Submit ---
         self._bt_submit_btn = ttk.Button(
@@ -550,11 +558,18 @@ class ValidationGUI:
             return
 
         order_timeout = 10
+        max_risk_pct = 1.0
         if mode == "baseline":
             try:
                 order_timeout = int(self._bt_timeout_var.get())
             except ValueError as exc:
                 self._output_queue.put(f"[ERROR] Invalid order timeout: {exc}\n")
+                self._output_queue.put(None)
+                return
+            try:
+                max_risk_pct = float(self._bt_max_risk_var.get())
+            except ValueError as exc:
+                self._output_queue.put(f"[ERROR] Invalid max risk: {exc}\n")
                 self._output_queue.put(None)
                 return
 
@@ -617,6 +632,7 @@ class ValidationGUI:
             print(f"Mode:      {mode_label}")
             if mode == "baseline":
                 print(f"Timeout:   {order_timeout} LTF candles")
+                print(f"Max risk:  {max_risk_pct:.1f}% of entry")
             print(f"Steps:     {bt_source.total_steps}")
             print("=" * 60 + "\n")
 
@@ -626,7 +642,7 @@ class ValidationGUI:
             if mode == "baseline":
                 self._run_baseline(
                     bt_source, strategy, symbol, htf_tf, ltf_tf,
-                    order_timeout, out_path, output_lines,
+                    order_timeout, max_risk_pct, out_path, output_lines,
                 )
             elif mode == "agent":
                 self._run_agent_backtest(
@@ -696,6 +712,7 @@ class ValidationGUI:
         output_lines: list[str],
         get_decision: Callable[[StrategySetup], TradeDecision | None],
         metrics_title: str,
+        max_risk_pct: float | None = None,
     ) -> None:
         """
         Shared limit-order simulation engine used by both baseline and agent test.
@@ -723,6 +740,7 @@ class ValidationGUI:
         active_order: ValidationGUI._Order | None = None
         trades: list[ValidationGUI._Order] = []
         skipped_no_trade = 0
+        skipped_risk = 0
         step_num = 0
 
         for current_dt, htf_df, ltf_df in bt_source:
@@ -787,32 +805,35 @@ class ValidationGUI:
                         o["close_dt"] = current_dt
                         trades.append(o)
                         active_order = None
-                    continue
+                    if active_order is not None:
+                        continue
 
                 # Filled — track TP / SL each candle
-                if bullish:
-                    if candle["high"] >= o["tp"]:
-                        o["result"] = "WIN"
-                        o["close_dt"] = current_dt
-                        trades.append(o)
-                        active_order = None
-                    elif candle["low"] <= o["sl"]:
-                        o["result"] = "LOSS"
-                        o["close_dt"] = current_dt
-                        trades.append(o)
-                        active_order = None
                 else:
-                    if candle["low"] <= o["tp"]:
-                        o["result"] = "WIN"
-                        o["close_dt"] = current_dt
-                        trades.append(o)
-                        active_order = None
-                    elif candle["high"] >= o["sl"]:
-                        o["result"] = "LOSS"
-                        o["close_dt"] = current_dt
-                        trades.append(o)
-                        active_order = None
-                continue
+                    if bullish:
+                        if candle["high"] >= o["tp"]:
+                            o["result"] = "WIN"
+                            o["close_dt"] = current_dt
+                            trades.append(o)
+                            active_order = None
+                        elif candle["low"] <= o["sl"]:
+                            o["result"] = "LOSS"
+                            o["close_dt"] = current_dt
+                            trades.append(o)
+                            active_order = None
+                    else:
+                        if candle["low"] <= o["tp"]:
+                            o["result"] = "WIN"
+                            o["close_dt"] = current_dt
+                            trades.append(o)
+                            active_order = None
+                        elif candle["high"] >= o["sl"]:
+                            o["result"] = "LOSS"
+                            o["close_dt"] = current_dt
+                            trades.append(o)
+                            active_order = None
+                    if active_order is not None:
+                        continue
 
             # ---- detect setup -----------------------------------------------
             try:
@@ -830,10 +851,19 @@ class ValidationGUI:
                 print(f"[{_ts(current_dt)}] NO TRADE  —  {td.reasoning if td else '—'}")
                 continue
 
-            trade_num = len(trades) + 1
             assert td.direction is not None
             assert td.entry_price is not None and td.stop_loss is not None
             risk = abs(td.entry_price - td.stop_loss)
+            risk_pct = risk / td.entry_price * 100
+            if max_risk_pct is not None and risk_pct > max_risk_pct:
+                skipped_risk += 1
+                print(
+                    f"[{_ts(current_dt)}] SKIPPED (risk {risk_pct:.2f}% > max {max_risk_pct:.1f}%)"
+                    f"  entry={_FMT.format(td.entry_price)}  sl={_FMT.format(td.stop_loss)}"
+                )
+                continue
+
+            trade_num = len(trades) + 1
 
             print("─" * 60)
             print(f"Trade #{trade_num}  at  {_ts(current_dt)} UTC")
@@ -896,9 +926,11 @@ class ValidationGUI:
         print(metrics_title)
         print("─" * 60)
         print(f"Candles checked:      {step_num}")
-        print(f"Setups detected:      {len(trades) + skipped_no_trade}")
+        print(f"Setups detected:      {len(trades) + skipped_no_trade + skipped_risk}")
         if skipped_no_trade:
             print(f"  No trade (filtered): {skipped_no_trade}")
+        if skipped_risk:
+            print(f"  Risk too high:       {skipped_risk}")
         print(f"Orders placed:        {len(trades)}")
         print(f"  Canceled (price):   {len(canceled_price)}")
         print(f"  Canceled (timeout): {len(canceled_timeout)}")
@@ -925,6 +957,7 @@ class ValidationGUI:
         htf_tf: Timeframe,
         ltf_tf: Timeframe,
         order_timeout: int,
+        max_risk_pct: float,
         out_path: Path,
         output_lines: list[str],
     ) -> None:
@@ -945,6 +978,7 @@ class ValidationGUI:
             order_timeout, out_path, output_lines,
             get_decision=get_decision,
             metrics_title="BASELINE METRICS",
+            max_risk_pct=max_risk_pct,
         )
 
     def _run_agent_backtest(

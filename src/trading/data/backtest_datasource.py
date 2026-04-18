@@ -10,7 +10,7 @@ Usage::
     src = BacktestDataSource(
         symbol="BTC/USDT:USDT",
         htf_timeframe="1h", htf_limit=72,
-        ltf_timeframe="15m", ltf_limit=16,
+        ltf_timeframe="15m", ltf_limit=24,
         bt_from=datetime(2026, 3, 1, tzinfo=UTC),
         bt_to=datetime(2026, 4, 1, tzinfo=UTC),
     )
@@ -130,12 +130,12 @@ class BacktestDataSource:
             current_dt = datetime.fromtimestamp(current_ts, tz=timezone.utc)
 
             htf_slice = (
-                self._htf_df[self._htf_df["timestamp"] <= current_dt]
+                self._htf_df[self._htf_df["timestamp"] < current_dt]
                 .tail(self._htf_limit)
                 .reset_index(drop=True)
             )
             ltf_slice = (
-                self._ltf_df[self._ltf_df["timestamp"] <= current_dt]
+                self._ltf_df[self._ltf_df["timestamp"] < current_dt]
                 .tail(self._ltf_limit)
                 .reset_index(drop=True)
             )
