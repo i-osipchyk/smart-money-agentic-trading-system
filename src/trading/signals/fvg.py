@@ -1,6 +1,16 @@
+from datetime import timedelta
+
 import pandas as pd
 
 from trading.core.models import FVG, Timeframe, Trend
+
+_TIMEFRAME_DURATION: dict[Timeframe, timedelta] = {
+    Timeframe.M5:  timedelta(minutes=5),
+    Timeframe.M15: timedelta(minutes=15),
+    Timeframe.H1:  timedelta(hours=1),
+    Timeframe.H4:  timedelta(hours=4),
+    Timeframe.D1:  timedelta(days=1),
+}
 
 
 def detect_fvg(df: pd.DataFrame, timeframe: Timeframe) -> list[FVG]:
@@ -34,7 +44,7 @@ def detect_fvg(df: pd.DataFrame, timeframe: Timeframe) -> list[FVG]:
             if not (subsequent_closes < bottom).any():
                 fvgs.append(
                     FVG(
-                        timestamp=curr["timestamp"],
+                        timestamp=nxt["timestamp"] + _TIMEFRAME_DURATION[timeframe],
                         top=nxt["low"],
                         bottom=bottom,
                         trend=Trend.BULLISH,
@@ -48,7 +58,7 @@ def detect_fvg(df: pd.DataFrame, timeframe: Timeframe) -> list[FVG]:
             if not (subsequent_closes > top).any():
                 fvgs.append(
                     FVG(
-                        timestamp=curr["timestamp"],
+                        timestamp=nxt["timestamp"] + _TIMEFRAME_DURATION[timeframe],
                         top=top,
                         bottom=nxt["high"],
                         trend=Trend.BEARISH,

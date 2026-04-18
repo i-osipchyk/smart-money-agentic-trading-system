@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -7,6 +8,8 @@ from trading.core.models import FVG, Fractal, StrategySetup, Timeframe, Trend
 from trading.signals.fractals import detect_fractals
 from trading.signals.fvg import detect_fvg
 from trading.strategies.base import Strategy
+
+logger = logging.getLogger(__name__)
 
 _DESCRIPTION = """\
 HTF FVG + LTF BOS (Fair Value Gap with Break of Structure confirmation)
@@ -98,6 +101,8 @@ class HtfFvgLtfBos(Strategy):
         htf_fractals = detect_fractals(htf_df, htf_timeframe)
         ltf_fractals = detect_fractals(ltf_df, ltf_timeframe)
 
+        _log_findings(htf_fvgs, ltf_fractals, self._fvg_offset_pct)
+
         signal = _find_signal(htf_fvgs, ltf_fractals, ltf_df, self._fvg_offset_pct)
         if signal is None:
             return None
@@ -122,6 +127,54 @@ class HtfFvgLtfBos(Strategy):
 
 # ------------------------------------------------------------------ internals
 
+def _log_findings(
+    htf_fvgs: list[FVG],
+    ltf_fractals: list[Fractal],
+    fvg_offset_pct: float,
+) -> None:
+    logger.info("HTF FVGs found: %d", len(htf_fvgs))
+    for fvg in htf_fvgs:
+        logger.info(
+            "  FVG [%s] top=%.2f bottom=%.2f formed=%s",
+            fvg.trend.value,
+            fvg.top,
+            fvg.bottom,
+            fvg.timestamp.strftime("%Y-%m-%d %H:%M"),
+        )
+
+    logger.info("LTF fractals found: %d", len(ltf_fractals))
+    for f in ltf_fractals:
+        kind = "high" if f.is_high else "low"
+        logger.info(
+            "  Fractal [%s] price=%.2f at=%s",
+            kind,
+            f.price,
+            f.timestamp.strftime("%Y-%m-%d %H:%M"),
+        )
+
+    inside: list[tuple[Fractal, FVG]] = []
+    for f in ltf_fractals:
+        for fvg in htf_fvgs:
+            offset = (fvg.top - fvg.bottom) * fvg_offset_pct
+            low = fvg.bottom - offset
+            high = fvg.top + offset
+            if low <= f.price <= high:
+                inside.append((f, fvg))
+
+    logger.info("LTF fractals inside an HTF FVG (±offset): %d", len(inside))
+    for f, fvg in inside:
+        kind = "high" if f.is_high else "low"
+        logger.info(
+            "  Fractal [%s] price=%.2f at=%s  →  FVG [%s] bottom=%.2f top=%.2f",
+            kind,
+            f.price,
+            f.timestamp.strftime("%Y-%m-%d %H:%M"),
+            fvg.trend.value,
+            fvg.bottom,
+            fvg.top,
+        )
+
+
 def _find_signal(
     htf_fvgs: list[FVG],
     ltf_fractals: list[Fractal],
@@ -141,56 +194,60 @@ def _find_signal(
     bearish_fvgs = [f for f in htf_fvgs if f.trend == Trend.BEARISH]
 
     # ---------------------------------------------------------------- bullish
-    if swing_lows and bullish_fvgs:
-        lowest_swing_low = min(swing_lows, key=lambda f: f.price)
-
-        for fvg in reversed(bullish_fvgs):
+    bullish_candidates: list[tuple[Fractal, FVG]] = []
+    for swing_low in swing_lows:
+        for fvg in reversed(bullish_fvgs):  # most-recent FVG first
+            if swing_low.timestamp <= fvg.timestamp:
+                continue
             offset = (fvg.top - fvg.bottom) * fvg_offset_pct
-            if (fvg.bottom - offset) <= lowest_swing_low.price <= fvg.top:
-                prior_highs = [h for h in swing_highs if h.timestamp < lowest_swing_low.timestamp]
-                if not prior_highs:
-                    continue
+            if (fvg.bottom - offset) <= swing_low.price <= fvg.top:
+                bullish_candidates.append((swing_low, fvg))
+                break  # use the most-recent FVG for this swing
 
-                prior_swing_high = prior_highs[-1]
-                candles_after = ltf_df[ltf_df["timestamp"] > lowest_swing_low.timestamp]
-                bos_rows = candles_after[candles_after["close"] > prior_swing_high.price]
-
-                if not bos_rows.empty:
-                    bos_candle = bos_rows.iloc[0]
-                    if bos_candle["timestamp"] != last_candle_ts:
-                        continue
+    if bullish_candidates:
+        swing_low, fvg = min(bullish_candidates, key=lambda x: x[0].price)
+        prior_highs = [h for h in swing_highs if h.timestamp < swing_low.timestamp]
+        if prior_highs:
+            prior_swing_high = prior_highs[-1]
+            candles_after = ltf_df[ltf_df["timestamp"] > swing_low.timestamp]
+            bos_rows = candles_after[candles_after["close"] > prior_swing_high.price]
+            if not bos_rows.empty:
+                bos_candle = bos_rows.iloc[0]
+                if bos_candle["timestamp"] == last_candle_ts:
                     return _EntrySignal(
                         direction=Trend.BULLISH,
                         fvg=fvg,
-                        swing_point=lowest_swing_low,
+                        swing_point=swing_low,
                         prior_swing=prior_swing_high,
                         bos_candle_timestamp=bos_candle["timestamp"],
                         bos_level=prior_swing_high.price,
                     )
 
     # ---------------------------------------------------------------- bearish
-    if swing_highs and bearish_fvgs:
-        highest_swing_high = max(swing_highs, key=lambda f: f.price)
-
-        for fvg in reversed(bearish_fvgs):
+    bearish_candidates: list[tuple[Fractal, FVG]] = []
+    for swing_high in swing_highs:
+        for fvg in reversed(bearish_fvgs):  # most-recent FVG first
+            if swing_high.timestamp <= fvg.timestamp:
+                continue
             offset = (fvg.top - fvg.bottom) * fvg_offset_pct
-            if fvg.bottom <= highest_swing_high.price <= (fvg.top + offset):
-                prior_lows = [lo for lo in swing_lows if lo.timestamp < highest_swing_high.timestamp]
-                if not prior_lows:
-                    continue
+            if fvg.bottom <= swing_high.price <= (fvg.top + offset):
+                bearish_candidates.append((swing_high, fvg))
+                break  # use the most-recent FVG for this swing
 
-                prior_swing_low = prior_lows[-1]
-                candles_after = ltf_df[ltf_df["timestamp"] > highest_swing_high.timestamp]
-                bos_rows = candles_after[candles_after["close"] < prior_swing_low.price]
-
-                if not bos_rows.empty:
-                    bos_candle = bos_rows.iloc[0]
-                    if bos_candle["timestamp"] != last_candle_ts:
-                        continue
+    if bearish_candidates:
+        swing_high, fvg = max(bearish_candidates, key=lambda x: x[0].price)
+        prior_lows = [lo for lo in swing_lows if lo.timestamp < swing_high.timestamp]
+        if prior_lows:
+            prior_swing_low = prior_lows[-1]
+            candles_after = ltf_df[ltf_df["timestamp"] > swing_high.timestamp]
+            bos_rows = candles_after[candles_after["close"] < prior_swing_low.price]
+            if not bos_rows.empty:
+                bos_candle = bos_rows.iloc[0]
+                if bos_candle["timestamp"] == last_candle_ts:
                     return _EntrySignal(
                         direction=Trend.BEARISH,
                         fvg=fvg,
-                        swing_point=highest_swing_high,
+                        swing_point=swing_high,
                         prior_swing=prior_swing_low,
                         bos_candle_timestamp=bos_candle["timestamp"],
                         bos_level=prior_swing_low.price,
