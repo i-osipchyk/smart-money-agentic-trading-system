@@ -1,0 +1,326 @@
+────────────────────────────────────────────────────────────
+Trade #1  at  2026-03-21 05:30 UTC
+Direction:   BULLISH
+Entry:       70,726.80  (limit at BOS level)
+Stop Loss:   70,402.00  (risk 324.80)
+Take Profit: 71,376.40  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #2  at  2026-03-21 16:30 UTC
+Direction:   BEARISH
+Entry:       70,420.00  (limit at BOS level)
+Stop Loss:   70,740.00  (risk 320.00)
+Take Profit: 69,780.00  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #3  at  2026-03-22 07:45 UTC
+Direction:   BEARISH
+Entry:       69,080.30  (limit at BOS level)
+Stop Loss:   69,557.00  (risk 476.70)
+Take Profit: 68,126.90  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #4  at  2026-03-22 18:45 UTC
+Direction:   BEARISH
+Entry:       68,600.70  (limit at BOS level)
+Stop Loss:   69,001.00  (risk 400.30)
+Take Profit: 67,800.10  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #5  at  2026-03-23 22:15 UTC
+Direction:   BEARISH
+Entry:       70,786.10  (limit at BOS level)
+Stop Loss:   70,977.00  (risk 190.90)
+Take Profit: 70,404.30  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+[2026-03-24 01:45] SKIPPED (risk 1.01% > max 1.0%)  entry=70,370.00  sl=71,081.00
+────────────────────────────────────────────────────────────
+Trade #6  at  2026-03-24 09:45 UTC
+Direction:   BULLISH
+Entry:       71,066.60  (limit at BOS level)
+Stop Loss:   70,812.00  (risk 254.60)
+Take Profit: 71,575.80  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #7  at  2026-03-24 18:15 UTC
+Direction:   BULLISH
+Entry:       69,305.00  (limit at BOS level)
+Stop Loss:   68,883.00  (risk 422.00)
+Take Profit: 70,149.00  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #8  at  2026-03-26 02:15 UTC
+Direction:   BEARISH
+Entry:       71,139.60  (limit at BOS level)
+Stop Loss:   71,409.00  (risk 269.40)
+Take Profit: 70,600.80  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #9  at  2026-03-26 09:45 UTC
+Direction:   BEARISH
+Entry:       69,769.70  (limit at BOS level)
+Stop Loss:   70,133.00  (risk 363.30)
+Take Profit: 69,043.10  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #10  at  2026-03-26 15:15 UTC
+Direction:   BEARISH
+Entry:       69,374.00  (limit at BOS level)
+Stop Loss:   69,751.00  (risk 377.00)
+Take Profit: 68,620.00  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #11  at  2026-03-26 22:30 UTC
+Direction:   BEARISH
+Entry:       68,849.80  (limit at BOS level)
+Stop Loss:   69,214.00  (risk 364.20)
+Take Profit: 68,121.40  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #12  at  2026-03-29 02:15 UTC
+Direction:   BULLISH
+Entry:       66,585.90  (limit at BOS level)
+Stop Loss:   66,343.00  (risk 242.90)
+Take Profit: 67,071.70  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #13  at  2026-03-29 09:45 UTC
+Direction:   BEARISH
+Entry:       66,565.00  (limit at BOS level)
+Stop Loss:   66,846.00  (risk 281.00)
+Take Profit: 66,003.00  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #14  at  2026-03-30 23:15 UTC
+Direction:   BEARISH
+Entry:       66,550.00  (limit at BOS level)
+Stop Loss:   66,975.00  (risk 425.00)
+Take Profit: 65,700.00  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+[2026-04-01 16:00] SKIPPED (risk 1.30% > max 1.0%)  entry=68,773.90  sl=67,883.00
+────────────────────────────────────────────────────────────
+Trade #15  at  2026-04-02 01:30 UTC
+Direction:   BEARISH
+Entry:       67,927.00  (limit at BOS level)
+Stop Loss:   68,512.00  (risk 585.00)
+Take Profit: 66,757.00  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #16  at  2026-04-02 18:00 UTC
+Direction:   BEARISH
+Entry:       66,815.10  (limit at BOS level)
+Stop Loss:   67,401.00  (risk 585.90)
+Take Profit: 65,643.30  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #17  at  2026-04-04 15:15 UTC
+Direction:   BULLISH
+Entry:       67,245.30  (limit at BOS level)
+Stop Loss:   67,003.00  (risk 242.30)
+Take Profit: 67,729.90  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #18  at  2026-04-05 12:45 UTC
+Direction:   BEARISH
+Entry:       66,800.00  (limit at BOS level)
+Stop Loss:   67,021.00  (risk 221.00)
+Take Profit: 66,358.00  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #19  at  2026-04-06 09:15 UTC
+Direction:   BULLISH
+Entry:       69,338.20  (limit at BOS level)
+Stop Loss:   68,769.00  (risk 569.20)
+Take Profit: 70,476.60  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #20  at  2026-04-06 18:15 UTC
+Direction:   BULLISH
+Entry:       69,604.60  (limit at BOS level)
+Stop Loss:   69,382.00  (risk 222.60)
+Take Profit: 70,049.80  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #21  at  2026-04-07 06:15 UTC
+Direction:   BEARISH
+Entry:       68,510.50  (limit at BOS level)
+Stop Loss:   68,957.00  (risk 446.50)
+Take Profit: 67,617.50  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #22  at  2026-04-07 09:15 UTC
+Direction:   BULLISH
+Entry:       68,955.60  (limit at BOS level)
+Stop Loss:   68,400.00  (risk 555.60)
+Take Profit: 70,066.80  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+[2026-04-07 11:00] SKIPPED (risk 1.20% > max 1.0%)  entry=68,400.60  sl=69,220.00
+────────────────────────────────────────────────────────────
+Trade #23  at  2026-04-07 16:30 UTC
+Direction:   BULLISH
+Entry:       68,203.00  (limit at BOS level)
+Stop Loss:   67,710.00  (risk 493.00)
+Take Profit: 69,189.00  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #24  at  2026-04-09 02:00 UTC
+Direction:   BULLISH
+Entry:       70,857.00  (limit at BOS level)
+Stop Loss:   70,427.00  (risk 430.00)
+Take Profit: 71,717.00  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #25  at  2026-04-10 09:45 UTC
+Direction:   BULLISH
+Entry:       71,763.80  (limit at BOS level)
+Stop Loss:   71,381.00  (risk 382.80)
+Take Profit: 72,529.40  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #26  at  2026-04-11 22:15 UTC
+Direction:   BULLISH
+Entry:       73,400.00  (limit at BOS level)
+Stop Loss:   73,154.00  (risk 246.00)
+Take Profit: 73,892.00  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #27  at  2026-04-12 22:15 UTC
+Direction:   BEARISH
+Entry:       71,110.30  (limit at BOS level)
+Stop Loss:   71,335.00  (risk 224.70)
+Take Profit: 70,660.90  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #28  at  2026-04-13 04:15 UTC
+Direction:   BEARISH
+Entry:       70,941.40  (limit at BOS level)
+Stop Loss:   71,246.00  (risk 304.60)
+Take Profit: 70,332.20  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #29  at  2026-04-14 07:00 UTC
+Direction:   BULLISH
+Entry:       74,401.80  (limit at BOS level)
+Stop Loss:   74,111.00  (risk 290.80)
+Take Profit: 74,983.40  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #30  at  2026-04-15 00:15 UTC
+Direction:   BULLISH
+Entry:       74,339.40  (limit at BOS level)
+Stop Loss:   73,766.00  (risk 573.40)
+Take Profit: 75,486.20  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #31  at  2026-04-15 08:45 UTC
+Direction:   BULLISH
+Entry:       73,987.00  (limit at BOS level)
+Stop Loss:   73,448.00  (risk 539.00)
+Take Profit: 75,065.00  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #32  at  2026-04-16 02:30 UTC
+Direction:   BULLISH
+Entry:       74,818.70  (limit at BOS level)
+Stop Loss:   74,399.00  (risk 419.70)
+Take Profit: 75,658.10  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #33  at  2026-04-16 12:00 UTC
+Direction:   BULLISH
+Entry:       74,482.80  (limit at BOS level)
+Stop Loss:   74,225.00  (risk 257.80)
+Take Profit: 74,998.40  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+[2026-04-16 19:00] SKIPPED (risk 2.13% > max 1.0%)  entry=74,981.10  sl=73,387.00
+────────────────────────────────────────────────────────────
+Trade #34  at  2026-04-17 06:45 UTC
+Direction:   BULLISH
+Entry:       74,810.50  (limit at BOS level)
+Stop Loss:   74,479.00  (risk 331.50)
+Take Profit: 75,473.50  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+[2026-04-17 13:15] SKIPPED (risk 1.35% > max 1.0%)  entry=76,350.00  sl=75,317.00
+────────────────────────────────────────────────────────────
+Trade #35  at  2026-04-17 20:00 UTC
+Direction:   BULLISH
+Entry:       77,344.80  (limit at BOS level)
+Stop Loss:   76,921.00  (risk 423.80)
+Take Profit: 78,192.40  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #36  at  2026-04-17 23:30 UTC
+Direction:   BEARISH
+Entry:       77,159.20  (limit at BOS level)
+Stop Loss:   77,567.00  (risk 407.80)
+Take Profit: 76,343.60  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #37  at  2026-04-18 17:00 UTC
+Direction:   BEARISH
+Entry:       75,924.40  (limit at BOS level)
+Stop Loss:   76,344.00  (risk 419.60)
+Take Profit: 75,085.20  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+────────────────────────────────────────────────────────────
+Trade #38  at  2026-04-19 11:45 UTC
+Direction:   BULLISH
+Entry:       75,445.90  (limit at BOS level)
+Stop Loss:   74,823.00  (risk 622.90)
+Take Profit: 76,691.70  (2.0:1 RR)
+Confidence:  n/a
+Reasoning:   baseline
+
+============================================================
+BASELINE METRICS
+────────────────────────────────────────────────────────────
+Candles checked:      2881
+Setups detected:      43
+  Risk too high:       5
+Orders placed:        38
+  Canceled (price):   5
+  Canceled (timeout): 4
+  Filled:             29
+    Wins:             12
+    Losses:           17
+    Open (end):       0
+Win rate:             41.4%  (12 / 29)
+Net R:                +7.0R  (12 × +2.0R,  17 × -1R)
+============================================================

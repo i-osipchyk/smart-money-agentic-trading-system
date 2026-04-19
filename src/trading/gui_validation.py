@@ -484,13 +484,39 @@ class ValidationGUI:
         assert config.bt_from is not None and config.bt_to is not None
         from_str = config.bt_from.strftime("%Y%m%d-%H%M")
         to_str = config.bt_to.strftime("%Y%m%d-%H%M")
-        llm_tag = (
-            f"_{config.llm_config.provider}_{config.llm_config.model}"
-            if config.output_mode == "agent" and config.llm_config is not None
-            else ""
+
+        # Optional model folder — only for agent mode
+        model_part: tuple[str, ...] = ()
+        if config.output_mode == "agent" and config.llm_config is not None:
+            model_part = (
+                f"{config.llm_config.provider}_{config.llm_config.model}",
+            )
+
+        # Symbol: sanitise filesystem-unsafe chars
+        symbol_folder = config.symbol.replace("/", "-").replace(":", "-")
+
+        # Strategy params relevant to each mode
+        offset_pct = config.fvg_offset_pct * 100
+        if config.output_mode == "prompt":
+            params = f"fvg{offset_pct:.4g}pct"
+        elif config.output_mode == "agent":
+            params = (
+                f"fvg{offset_pct:.4g}pct"
+                f"_to{config.order_timeout}"
+                f"_risk{config.max_risk_pct:.4g}pct"
+            )
+        else:  # baseline
+            params = (
+                f"fvg{offset_pct:.4g}pct"
+                f"_rr{config.rr_ratio:.4g}"
+                f"_to{config.order_timeout}"
+                f"_risk{config.max_risk_pct:.4g}pct"
+            )
+
+        filename = f"{from_str}_{to_str}.txt"
+        return _BACKTEST_DIR.joinpath(
+            mode_label, *model_part, strategy_name, symbol_folder, params, filename
         )
-        filename = f"{from_str}_{to_str}{llm_tag}.txt"
-        return _BACKTEST_DIR / mode_label / strategy_name / filename
 
     # ---------------------------------------------------- validation submit
 
