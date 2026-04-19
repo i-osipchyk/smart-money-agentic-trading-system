@@ -1,38 +1,14 @@
-import io
 import queue
 import sys
 import threading
 import tkinter as tk
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tkinter import ttk
-from typing import TypedDict
 
 from trading.agents.llm_provider import PROVIDERS, LLMConfig
-from trading.agents.trade_validation_agent import (
-    TradeValidationAgent,
-    build_prompt,
-    parse_decision,
-)
-from trading.core.models import StrategySetup, Timeframe, TradeDecision, Trend
-from trading.data.backtest_datasource import BacktestDataSource
-from trading.data.binance_datasource import BinanceDataSource
-from trading.data.csv_datasource import CSVDataSource
-from trading.strategies import HtfFvgLtfBos
-
-
-class QueueWriter(io.TextIOBase):
-    def __init__(self, q: "queue.Queue[str | None]") -> None:
-        self._q = q
-
-    def write(self, s: str) -> int:
-        if s:
-            self._q.put(s)
-        return len(s)
-
-    def flush(self) -> None:
-        pass
+from trading.core.models import Timeframe
+from trading.runner import BacktestRunner, OneTimeRunner, RunConfig
 
 _TF_VALUES = ["5m", "15m", "1h", "4h", "1d"]
 _TF_SECONDS: dict[str, int] = {
@@ -44,6 +20,11 @@ _TF_SECONDS: dict[str, int] = {
 }
 _DATA_DIR = Path("data")
 _BACKTEST_DIR = Path("backtests")
+_MODE_LABELS = {
+    "prompt": "prompt_validation",
+    "agent": "agent_test",
+    "baseline": "baseline_metrics",
+}
 
 
 class ValidationGUI:
@@ -51,13 +32,12 @@ class ValidationGUI:
         self._root = root
         self._root.title("Trade Validation — SMC Entry Detector")
         self._root.geometry("1100x900")
-        self._root.minsize(800, 00)
+        self._root.minsize(800, 500)
 
-        self._output_queue: queue.Queue[str | None] = queue.Queue()
+        self._gui_queue: queue.Queue[str | None] = queue.Queue()
 
-        # Shared vars — kept in sync across both tabs
+        # ---- shared vars (both tabs) ----
         self._source_var = tk.StringVar(value="csv")
-        self._mode_var = tk.StringVar(value="prompt")
         self._htf_csv_var = tk.StringVar()
         self._ltf_csv_var = tk.StringVar()
         self._until_var = tk.StringVar()
@@ -66,26 +46,30 @@ class ValidationGUI:
         self._htf_limit_var = tk.StringVar(value="72")
         self._ltf_limit_var = tk.StringVar(value="24")
         self._symbol_var = tk.StringVar(value="BTC/USDT:USDT")
-        # Offset in tenths of a percent (1 = 0.1 %, 10 = 1.0 %)
-        self._offset_var = tk.StringVar(value="10")
+        self._offset_var = tk.StringVar(value="10")  # tenths of a percent
 
-        # LLM provider/model selection — shared across both tabs
+        # output mode — shared, drives both tabs
+        self._output_mode_var = tk.StringVar(value="prompt")
+
+        # simulation options — shared
+        self._order_timeout_var = tk.StringVar(value="10")
+        self._max_risk_var = tk.StringVar(value="1.0")
+        self._rr_ratio_var = tk.StringVar(value="2.0")
+
+        # LLM provider/model — shared
         _default_provider = next(iter(PROVIDERS))
         self._provider_var = tk.StringVar(value=_default_provider)
         self._model_var = tk.StringVar(value=PROVIDERS[_default_provider][0])
         self._model_combos: list[ttk.Combobox] = []
 
-        # Backtest-specific vars
+        # backtest date range
         now = datetime.now(UTC)
         self._bt_from_var = tk.StringVar(
             value=(now - timedelta(days=30)).strftime("%Y-%m-%d %H:%M")
         )
         self._bt_to_var = tk.StringVar(value=now.strftime("%Y-%m-%d %H:%M"))
-        self._bt_mode_var = tk.StringVar(value="prompt")
-        self._bt_timeout_var = tk.StringVar(value="10")
-        self._bt_max_risk_var = tk.StringVar(value="1.0")
 
-        # Typed widget refs — set during layout
+        # typed widget refs set during layout
         self._csv_frame: ttk.Frame
         self._until_frame: ttk.Frame
         self._htf_csv_combo: ttk.Combobox
@@ -94,6 +78,7 @@ class ValidationGUI:
         self._bt_output_text: tk.Text
         self._submit_btn: ttk.Button
         self._bt_submit_btn: ttk.Button
+        self._bl_frames: list[ttk.LabelFrame] = []  # one per tab
 
         self._build_layout()
         self._populate_csv_dropdowns()
@@ -102,6 +87,7 @@ class ValidationGUI:
         self._ltf_tf_var.trace_add("write", lambda *_: self._refresh_until_default())
         self._source_var.trace_add("write", lambda *_: self._on_source_change())
         self._provider_var.trace_add("write", lambda *_: self._on_provider_change())
+        self._output_mode_var.trace_add("write", lambda *_: self._on_mode_change())
 
     # ------------------------------------------------------------------ layout
 
@@ -153,7 +139,8 @@ class ValidationGUI:
         return text
 
     def _build_shared_controls(self, parent: ttk.Frame) -> None:
-        """HTF/LTF timeframes + candle counts, symbol, and FVG offset."""
+        """Build shared controls: timeframes, symbol, FVG offset, model, output mode."""
+        # --- Timeframes ---
         tf_frame = ttk.LabelFrame(parent, text="Timeframes", padding=8)
         tf_frame.pack(fill=tk.X, pady=(0, 8))
 
@@ -162,42 +149,46 @@ class ValidationGUI:
 
         ttk.Label(tf_inner, text="HTF").grid(row=0, column=0, sticky=tk.W, padx=(0, 6))
         ttk.Combobox(
-            tf_inner, textvariable=self._htf_tf_var, values=_TF_VALUES, state="readonly", width=7
+            tf_inner, textvariable=self._htf_tf_var, values=_TF_VALUES,
+            state="readonly", width=7,
         ).grid(row=0, column=1, sticky=tk.W, pady=(0, 4))
         ttk.Spinbox(
-            tf_inner, textvariable=self._htf_limit_var, from_=10, to=500, width=5
+            tf_inner, textvariable=self._htf_limit_var, from_=10, to=500, width=5,
         ).grid(row=0, column=2, sticky=tk.W, padx=(8, 4), pady=(0, 4))
-        ttk.Label(tf_inner, text="candles").grid(row=0, column=3, sticky=tk.W, pady=(0, 4))
+        ttk.Label(tf_inner, text="candles").grid(
+            row=0, column=3, sticky=tk.W, pady=(0, 4)
+        )
 
         ttk.Label(tf_inner, text="LTF").grid(row=1, column=0, sticky=tk.W, padx=(0, 6))
         ttk.Combobox(
-            tf_inner, textvariable=self._ltf_tf_var, values=_TF_VALUES, state="readonly", width=7
+            tf_inner, textvariable=self._ltf_tf_var, values=_TF_VALUES,
+            state="readonly", width=7,
         ).grid(row=1, column=1, sticky=tk.W)
         ttk.Spinbox(
-            tf_inner, textvariable=self._ltf_limit_var, from_=10, to=500, width=5
+            tf_inner, textvariable=self._ltf_limit_var, from_=10, to=500, width=5,
         ).grid(row=1, column=2, sticky=tk.W, padx=(8, 4))
         ttk.Label(tf_inner, text="candles").grid(row=1, column=3, sticky=tk.W)
 
+        # --- Symbol ---
         sym_frame = ttk.LabelFrame(parent, text="Symbol", padding=8)
         sym_frame.pack(fill=tk.X, pady=(0, 8))
         ttk.Entry(sym_frame, textvariable=self._symbol_var, width=18).pack(anchor=tk.W)
 
+        # --- FVG Offset ---
         opt_frame = ttk.LabelFrame(parent, text="Options", padding=8)
         opt_frame.pack(fill=tk.X, pady=(0, 8))
-
         opt_inner = ttk.Frame(opt_frame)
         opt_inner.pack(fill=tk.X)
         ttk.Label(opt_inner, text="FVG offset (×0.1%)").grid(
             row=0, column=0, sticky=tk.W, padx=(0, 6)
         )
         ttk.Spinbox(
-            opt_inner, textvariable=self._offset_var, from_=0, to=1000, width=5
+            opt_inner, textvariable=self._offset_var, from_=0, to=1000, width=5,
         ).grid(row=0, column=1, sticky=tk.W)
 
         # --- Model ---
         model_frame = ttk.LabelFrame(parent, text="Model", padding=8)
         model_frame.pack(fill=tk.X, pady=(0, 8))
-
         model_inner = ttk.Frame(model_frame)
         model_inner.pack(fill=tk.X)
 
@@ -205,25 +196,67 @@ class ValidationGUI:
             row=0, column=0, sticky=tk.W, padx=(0, 6), pady=(0, 4)
         )
         ttk.Combobox(
-            model_inner,
-            textvariable=self._provider_var,
-            values=list(PROVIDERS),
-            state="readonly",
-            width=12,
+            model_inner, textvariable=self._provider_var,
+            values=list(PROVIDERS), state="readonly", width=12,
         ).grid(row=0, column=1, sticky=tk.W, pady=(0, 4))
 
         ttk.Label(model_inner, text="Model").grid(
             row=1, column=0, sticky=tk.W, padx=(0, 6)
         )
         model_combo = ttk.Combobox(
-            model_inner,
-            textvariable=self._model_var,
+            model_inner, textvariable=self._model_var,
             values=PROVIDERS.get(self._provider_var.get(), []),
-            state="readonly",
-            width=28,
+            state="readonly", width=28,
         )
         model_combo.grid(row=1, column=1, sticky=tk.W)
         self._model_combos.append(model_combo)
+
+        # --- Output Mode ---
+        mode_frame = ttk.LabelFrame(parent, text="Output Mode", padding=8)
+        mode_frame.pack(fill=tk.X, pady=(0, 8))
+        for label, value in [
+            ("Prompt Validation", "prompt"),
+            ("Agent Test", "agent"),
+            ("Baseline Metrics", "baseline"),
+        ]:
+            ttk.Radiobutton(
+                mode_frame, text=label,
+                variable=self._output_mode_var, value=value,
+            ).pack(anchor=tk.W)
+
+        # --- Baseline Options (shown only when output_mode == "baseline") ---
+        bl_frame = ttk.LabelFrame(parent, text="Baseline Options", padding=8)
+        bl_inner = ttk.Frame(bl_frame)
+        bl_inner.pack(fill=tk.X)
+
+        ttk.Label(bl_inner, text="Order timeout (LTF candles)").grid(
+            row=0, column=0, sticky=tk.W, padx=(0, 6)
+        )
+        ttk.Spinbox(
+            bl_inner, textvariable=self._order_timeout_var, from_=1, to=500, width=5,
+        ).grid(row=0, column=1, sticky=tk.W)
+
+        ttk.Label(bl_inner, text="Max risk (% of entry)").grid(
+            row=1, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
+        )
+        ttk.Spinbox(
+            bl_inner, textvariable=self._max_risk_var,
+            from_=0.1, to=100.0, increment=0.1, format="%.1f", width=5,
+        ).grid(row=1, column=1, sticky=tk.W, pady=(4, 0))
+
+        ttk.Label(bl_inner, text="Take profit (RR ratio)").grid(
+            row=2, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
+        )
+        ttk.Spinbox(
+            bl_inner, textvariable=self._rr_ratio_var,
+            from_=0.5, to=20.0, increment=0.5, format="%.1f", width=5,
+        ).grid(row=2, column=1, sticky=tk.W, pady=(4, 0))
+
+        self._bl_frames.append(bl_frame)
+
+        # Apply current visibility immediately
+        if self._output_mode_var.get() == "baseline":
+            bl_frame.pack(fill=tk.X, pady=(0, 8))
 
     # --------------------------------------------------------- validation tab
 
@@ -236,10 +269,11 @@ class ValidationGUI:
         # --- Data Source ---
         src_frame = ttk.LabelFrame(parent, text="Data Source", padding=8)
         src_frame.pack(fill=tk.X, pady=(0, 8))
-
-        for label, value in [("CSV", "csv"), ("Past Data", "past"), ("Current Data", "live")]:
+        for label, value in [
+            ("CSV", "csv"), ("Past Data", "past"), ("Current Data", "live"),
+        ]:
             ttk.Radiobutton(
-                src_frame, text=label, variable=self._source_var, value=value
+                src_frame, text=label, variable=self._source_var, value=value,
             ).pack(anchor=tk.W)
 
         # --- CSV file pickers (shown for "csv") ---
@@ -248,37 +282,32 @@ class ValidationGUI:
 
         ttk.Label(self._csv_frame, text="HTF CSV File").pack(anchor=tk.W)
         self._htf_csv_combo = ttk.Combobox(
-            self._csv_frame, textvariable=self._htf_csv_var, state="readonly", width=32
+            self._csv_frame, textvariable=self._htf_csv_var,
+            state="readonly", width=32,
         )
         self._htf_csv_combo.pack(fill=tk.X, pady=(0, 6))
 
         ttk.Label(self._csv_frame, text="LTF CSV File").pack(anchor=tk.W)
         self._ltf_csv_combo = ttk.Combobox(
-            self._csv_frame, textvariable=self._ltf_csv_var, state="readonly", width=32
+            self._csv_frame, textvariable=self._ltf_csv_var,
+            state="readonly", width=32,
         )
         self._ltf_csv_combo.pack(fill=tk.X)
 
         # --- To datetime (shown for "past") ---
         self._until_frame = ttk.Frame(parent)
-
-        ttk.Label(self._until_frame, text="To (UTC)  —  YYYY-MM-DD HH:MM").pack(anchor=tk.W)
+        ttk.Label(
+            self._until_frame, text="To (UTC)  —  YYYY-MM-DD HH:MM"
+        ).pack(anchor=tk.W)
         ttk.Entry(self._until_frame, textvariable=self._until_var, width=22).pack(
             anchor=tk.W, pady=(2, 0)
         )
 
         self._build_shared_controls(parent)
 
-        # --- Mode ---
-        mode_frame = ttk.LabelFrame(parent, text="Mode", padding=8)
-        mode_frame.pack(fill=tk.X, pady=(0, 12))
-
-        for label, value in [("Prompt Validation", "prompt"), ("Agent Test", "agent")]:
-            ttk.Radiobutton(
-                mode_frame, text=label, variable=self._mode_var, value=value
-            ).pack(anchor=tk.W)
-
-        # --- Submit ---
-        self._submit_btn = ttk.Button(parent, text="Detect Entry", command=self._on_submit)
+        self._submit_btn = ttk.Button(
+            parent, text="Detect Entry", command=self._on_submit
+        )
         self._submit_btn.pack(fill=tk.X)
 
     # ----------------------------------------------------------- backtest tab
@@ -293,7 +322,7 @@ class ValidationGUI:
 
         # --- Date Range ---
         range_frame = ttk.LabelFrame(parent, text="Date Range (UTC)", padding=8)
-        range_frame.pack(fill=tk.X, pady=(0, 8))
+        range_frame.pack(fill=tk.X, pady=(0, 12))
 
         ttk.Label(range_frame, text="From  YYYY-MM-DD HH:MM").pack(anchor=tk.W)
         ttk.Entry(range_frame, textvariable=self._bt_from_var, width=22).pack(
@@ -304,40 +333,6 @@ class ValidationGUI:
             anchor=tk.W, pady=(2, 0)
         )
 
-        # --- Mode ---
-        mode_frame = ttk.LabelFrame(parent, text="Mode", padding=8)
-        mode_frame.pack(fill=tk.X, pady=(0, 8))
-
-        for label, value in [
-            ("Prompt Validation", "prompt"),
-            ("Agent Test", "agent"),
-            ("Baseline Metrics", "baseline"),
-        ]:
-            ttk.Radiobutton(
-                mode_frame, text=label, variable=self._bt_mode_var, value=value
-            ).pack(anchor=tk.W)
-
-        # --- Baseline options ---
-        bl_frame = ttk.LabelFrame(parent, text="Baseline Options", padding=8)
-        bl_frame.pack(fill=tk.X, pady=(0, 12))
-
-        bl_inner = ttk.Frame(bl_frame)
-        bl_inner.pack(fill=tk.X)
-        ttk.Label(bl_inner, text="Order timeout (LTF candles)").grid(
-            row=0, column=0, sticky=tk.W, padx=(0, 6)
-        )
-        ttk.Spinbox(
-            bl_inner, textvariable=self._bt_timeout_var, from_=1, to=500, width=5
-        ).grid(row=0, column=1, sticky=tk.W)
-        ttk.Label(bl_inner, text="Max risk (% of entry)").grid(
-            row=1, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
-        )
-        ttk.Spinbox(
-            bl_inner, textvariable=self._bt_max_risk_var,
-            from_=0.1, to=100.0, increment=0.1, format="%.1f", width=5
-        ).grid(row=1, column=1, sticky=tk.W, pady=(4, 0))
-
-        # --- Submit ---
         self._bt_submit_btn = ttk.Button(
             parent, text="Run Backtest", command=self._on_run_backtest
         )
@@ -365,8 +360,19 @@ class ValidationGUI:
             self._csv_frame.pack_forget()
             self._until_frame.pack_forget()
 
+    def _on_mode_change(self) -> None:
+        show = self._output_mode_var.get() == "baseline"
+        for frame in self._bl_frames:
+            if show:
+                frame.pack(fill=tk.X, pady=(0, 8))
+            else:
+                frame.pack_forget()
+
     def _populate_csv_dropdowns(self) -> None:
-        csv_files = sorted(f.name for f in _DATA_DIR.glob("*.csv")) if _DATA_DIR.exists() else []
+        csv_files = (
+            sorted(f.name for f in _DATA_DIR.glob("*.csv"))
+            if _DATA_DIR.exists() else []
+        )
         self._htf_csv_combo["values"] = csv_files
         self._ltf_csv_combo["values"] = csv_files
         if csv_files:
@@ -381,635 +387,163 @@ class ValidationGUI:
         dt = datetime.fromtimestamp(last_closed_ts, tz=UTC)
         self._until_var.set(dt.strftime("%Y-%m-%d %H:%M"))
 
+    # ------------------------------------------------ config builders
+
+    def _build_run_config(self) -> RunConfig | None:
+        """Parse shared tkinter vars into a RunConfig; return None on error."""
+        try:
+            htf_limit = int(self._htf_limit_var.get())
+            ltf_limit = int(self._ltf_limit_var.get())
+        except ValueError as exc:
+            self._gui_queue.put(f"[ERROR] Invalid candle limit: {exc}\n")
+            self._gui_queue.put(None)
+            return None
+
+        try:
+            offset_pct = float(self._offset_var.get()) / 1000.0
+        except ValueError as exc:
+            self._gui_queue.put(f"[ERROR] Invalid FVG offset: {exc}\n")
+            self._gui_queue.put(None)
+            return None
+
+        try:
+            order_timeout = int(self._order_timeout_var.get())
+            max_risk_pct = float(self._max_risk_var.get())
+            rr_ratio = float(self._rr_ratio_var.get())
+        except ValueError as exc:
+            self._gui_queue.put(f"[ERROR] Invalid baseline option: {exc}\n")
+            self._gui_queue.put(None)
+            return None
+
+        return RunConfig(
+            symbol=self._symbol_var.get().strip(),
+            htf_tf=Timeframe(self._htf_tf_var.get()),
+            ltf_tf=Timeframe(self._ltf_tf_var.get()),
+            htf_limit=htf_limit,
+            ltf_limit=ltf_limit,
+            fvg_offset_pct=offset_pct,
+            output_mode=self._output_mode_var.get(),  # type: ignore[arg-type]
+            llm_config=LLMConfig(
+                provider=self._provider_var.get(),
+                model=self._model_var.get(),
+            ),
+            order_timeout=order_timeout,
+            max_risk_pct=max_risk_pct,
+            rr_ratio=rr_ratio,
+        )
+
+    def _build_onetime_config(self) -> RunConfig | None:
+        config = self._build_run_config()
+        if config is None:
+            return None
+
+        config.data_source = self._source_var.get()  # type: ignore[assignment]
+        config.htf_csv = self._htf_csv_var.get() or None
+        config.ltf_csv = self._ltf_csv_var.get() or None
+
+        if config.data_source == "past":
+            try:
+                config.until = datetime.strptime(
+                    self._until_var.get().strip(), "%Y-%m-%d %H:%M"
+                ).replace(tzinfo=UTC)
+            except ValueError as exc:
+                self._gui_queue.put(f"[ERROR] Invalid 'To' datetime: {exc}\n")
+                self._gui_queue.put(None)
+                return None
+
+        return config
+
+    def _build_backtest_config(self) -> RunConfig | None:
+        config = self._build_run_config()
+        if config is None:
+            return None
+
+        try:
+            config.bt_from = datetime.strptime(
+                self._bt_from_var.get().strip(), "%Y-%m-%d %H:%M"
+            ).replace(tzinfo=UTC)
+            config.bt_to = datetime.strptime(
+                self._bt_to_var.get().strip(), "%Y-%m-%d %H:%M"
+            ).replace(tzinfo=UTC)
+        except ValueError as exc:
+            self._gui_queue.put(f"[ERROR] Invalid date range: {exc}\n")
+            self._gui_queue.put(None)
+            return None
+
+        if config.bt_from >= config.bt_to:
+            self._gui_queue.put("[ERROR] 'From' must be before 'To'.\n")
+            self._gui_queue.put(None)
+            return None
+
+        return config
+
+    def _build_out_path(self, config: RunConfig) -> Path:
+        from trading.strategies import HtfFvgLtfBos
+        strategy_name = HtfFvgLtfBos().name
+        mode_label = _MODE_LABELS[config.output_mode]
+        assert config.bt_from is not None and config.bt_to is not None
+        from_str = config.bt_from.strftime("%Y%m%d-%H%M")
+        to_str = config.bt_to.strftime("%Y%m%d-%H%M")
+        llm_tag = (
+            f"_{config.llm_config.provider}_{config.llm_config.model}"
+            if config.output_mode == "agent" and config.llm_config is not None
+            else ""
+        )
+        filename = f"{from_str}_{to_str}{llm_tag}.txt"
+        return _BACKTEST_DIR / mode_label / strategy_name / filename
+
     # ---------------------------------------------------- validation submit
 
     def _on_submit(self) -> None:
         self._clear_output(self._val_output_text)
         self._submit_btn.config(state=tk.DISABLED)
-
         thread = threading.Thread(target=self._run_analysis, daemon=True)
         thread.start()
         self._root.after(
             100,
-            lambda: self._poll_output_queue(self._val_output_text, self._submit_btn),
+            lambda: self._poll_gui_queue(self._val_output_text, self._submit_btn),
         )
 
     def _run_analysis(self) -> None:
-        source_raw = self._source_var.get()
-        symbol = self._symbol_var.get().strip()
-        htf_tf = Timeframe(self._htf_tf_var.get())
-        ltf_tf = Timeframe(self._ltf_tf_var.get())
-
-        try:
-            htf_limit = int(self._htf_limit_var.get())
-            ltf_limit = int(self._ltf_limit_var.get())
-        except ValueError as exc:
-            self._output_queue.put(f"[ERROR] Invalid candle limit: {exc}\n")
-            self._output_queue.put(None)
+        config = self._build_onetime_config()
+        if config is None:
             return
-
         try:
-            offset_pct = float(self._offset_var.get()) / 1000.0
-        except ValueError as exc:
-            self._output_queue.put(f"[ERROR] Invalid FVG offset: {exc}\n")
-            self._output_queue.put(None)
-            return
-
-        until: datetime | None = None
-        if source_raw == "past":
-            try:
-                until = datetime.strptime(
-                    self._until_var.get().strip(), "%Y-%m-%d %H:%M"
-                ).replace(tzinfo=UTC)
-            except ValueError as exc:
-                self._output_queue.put(f"[ERROR] Invalid 'To' datetime: {exc}\n")
-                self._output_queue.put(None)
-                return
-
-        old_stdout, old_stderr = sys.stdout, sys.stderr
-        writer: QueueWriter = QueueWriter(self._output_queue)
-        sys.stdout = writer
-        sys.stderr = writer
-
-        try:
-            if source_raw == "csv":
-                src = CSVDataSource(data_dir=_DATA_DIR)
-                htf_df = src.get_ohlcv(
-                    symbol=symbol,
-                    timeframe=htf_tf.value,
-                    limit=htf_limit,
-                    filename_override=self._htf_csv_var.get() or None,
-                )
-                ltf_df = src.get_ohlcv(
-                    symbol=symbol,
-                    timeframe=ltf_tf.value,
-                    limit=ltf_limit,
-                    filename_override=self._ltf_csv_var.get() or None,
-                )
-            else:
-                binance = BinanceDataSource()
-                htf_since: datetime | None = None
-                ltf_since: datetime | None = None
-                if source_raw == "past" and until is not None:
-                    htf_since = until - timedelta(
-                        seconds=htf_limit * _TF_SECONDS[htf_tf.value]
-                    )
-                    ltf_since = until - timedelta(
-                        seconds=ltf_limit * _TF_SECONDS[ltf_tf.value]
-                    )
-                htf_df = binance.get_ohlcv(
-                    symbol=symbol, timeframe=htf_tf.value, limit=htf_limit, since=htf_since
-                )
-                ltf_df = binance.get_ohlcv(
-                    symbol=symbol, timeframe=ltf_tf.value, limit=ltf_limit, since=ltf_since
-                )
-
-            strategy = HtfFvgLtfBos(fvg_offset_pct=offset_pct)
-            setup = strategy.detect_entry(symbol, htf_df, htf_tf, ltf_df, ltf_tf)
-            if setup is None:
-                offset_display = offset_pct * 100
-                print(f"Strategy:   {strategy.name}")
-                print(f"Symbol:     {symbol}")
-                print(f"HTF:        {htf_tf.value}  ({htf_limit} candles)")
-                print(f"LTF:        {ltf_tf.value}  ({ltf_limit} candles)")
-                print(
-                    f"HTF range:  {htf_df['timestamp'].iloc[0].strftime('%Y-%m-%d %H:%M')} → "
-                    f"{htf_df['timestamp'].iloc[-1].strftime('%Y-%m-%d %H:%M')}"
-                )
-                print(
-                    f"LTF range:  {ltf_df['timestamp'].iloc[0].strftime('%Y-%m-%d %H:%M')} → "
-                    f"{ltf_df['timestamp'].iloc[-1].strftime('%Y-%m-%d %H:%M')}"
-                )
-                print(f"FVG offset: {offset_display:.1f} %")
-                print("\n" + "─" * 44)
-                print("\nNo entry detected.")
-            elif self._mode_var.get() == "prompt":
-                prompt = build_prompt(setup)
-                print("─" * 44)
-                print("PROMPT VALIDATION — agent not called\n")
-                print(prompt)
-            else:
-                prompt = build_prompt(setup)
-                print("Sending to agent...\n")
-                agent = TradeValidationAgent(
-                    LLMConfig(
-                        provider=self._provider_var.get(),
-                        model=self._model_var.get(),
-                    )
-                )
-                print(agent.run(prompt))
-
+            OneTimeRunner(config, _DATA_DIR).run(
+                gui_output=lambda s: self._gui_queue.put(s)
+            )
         except Exception as exc:
-            print(f"\n[ERROR] {exc}")
+            self._gui_queue.put(f"\n[ERROR] {exc}\n")
         finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
-            self._output_queue.put(None)
+            self._gui_queue.put(None)
 
     # ----------------------------------------------------- backtest submit
 
     def _on_run_backtest(self) -> None:
         self._clear_output(self._bt_output_text)
         self._bt_submit_btn.config(state=tk.DISABLED)
-
         thread = threading.Thread(target=self._run_backtest, daemon=True)
         thread.start()
         self._root.after(
             100,
-            lambda: self._poll_output_queue(self._bt_output_text, self._bt_submit_btn),
+            lambda: self._poll_gui_queue(self._bt_output_text, self._bt_submit_btn),
         )
 
     def _run_backtest(self) -> None:
-        symbol = self._symbol_var.get().strip()
-        htf_tf = Timeframe(self._htf_tf_var.get())
-        ltf_tf = Timeframe(self._ltf_tf_var.get())
-        mode = self._bt_mode_var.get()
-
-        try:
-            htf_limit = int(self._htf_limit_var.get())
-            ltf_limit = int(self._ltf_limit_var.get())
-        except ValueError as exc:
-            self._output_queue.put(f"[ERROR] Invalid candle limit: {exc}\n")
-            self._output_queue.put(None)
+        config = self._build_backtest_config()
+        if config is None:
             return
-
+        out_path = self._build_out_path(config)
         try:
-            offset_pct = float(self._offset_var.get()) / 1000.0
-        except ValueError as exc:
-            self._output_queue.put(f"[ERROR] Invalid FVG offset: {exc}\n")
-            self._output_queue.put(None)
-            return
-
-        try:
-            bt_from = datetime.strptime(
-                self._bt_from_var.get().strip(), "%Y-%m-%d %H:%M"
-            ).replace(tzinfo=UTC)
-            bt_to = datetime.strptime(
-                self._bt_to_var.get().strip(), "%Y-%m-%d %H:%M"
-            ).replace(tzinfo=UTC)
-        except ValueError as exc:
-            self._output_queue.put(f"[ERROR] Invalid date range: {exc}\n")
-            self._output_queue.put(None)
-            return
-
-        if bt_from >= bt_to:
-            self._output_queue.put("[ERROR] 'From' must be before 'To'.\n")
-            self._output_queue.put(None)
-            return
-
-        order_timeout = 10
-        max_risk_pct = 1.0
-        if mode == "baseline":
-            try:
-                order_timeout = int(self._bt_timeout_var.get())
-            except ValueError as exc:
-                self._output_queue.put(f"[ERROR] Invalid order timeout: {exc}\n")
-                self._output_queue.put(None)
-                return
-            try:
-                max_risk_pct = float(self._bt_max_risk_var.get())
-            except ValueError as exc:
-                self._output_queue.put(f"[ERROR] Invalid max risk: {exc}\n")
-                self._output_queue.put(None)
-                return
-
-        strategy = HtfFvgLtfBos(fvg_offset_pct=offset_pct)
-        bt_source = BacktestDataSource(
-            symbol=symbol,
-            htf_timeframe=htf_tf.value,
-            htf_limit=htf_limit,
-            ltf_timeframe=ltf_tf.value,
-            ltf_limit=ltf_limit,
-            bt_from=bt_from,
-            bt_to=bt_to,
-        )
-
-        _MODE_LABELS = {
-            "prompt": "prompt_validation",
-            "agent": "agent_test",
-            "baseline": "baseline_metrics",
-        }
-        mode_label = _MODE_LABELS[mode]
-        from_str = bt_from.strftime("%Y%m%d-%H%M")
-        to_str = bt_to.strftime("%Y%m%d-%H%M")
-        out_dir = (
-            _BACKTEST_DIR / mode_label / strategy.name
-            if mode != "baseline"
-            else _BACKTEST_DIR / "baseline_metrics" / strategy.name
-        )
-        out_dir.mkdir(parents=True, exist_ok=True)
-        if mode == "agent":
-            llm_tag = f"_{self._provider_var.get()}_{self._model_var.get()}"
-        else:
-            llm_tag = ""
-        out_path = out_dir / f"{from_str}_{to_str}{llm_tag}.txt"
-
-        output_lines: list[str] = []
-
-        # Tee: write to the queue (→ UI) and collect for file output
-        gui_self = self
-
-        class _Tee(io.TextIOBase):
-            def write(self_t, s: str) -> int:  # noqa: N805
-                gui_self._output_queue.put(s)
-                output_lines.append(s)
-                return len(s)
-
-        old_stdout, old_stderr = sys.stdout, sys.stderr
-        tee = _Tee()
-        sys.stdout = tee
-        sys.stderr = tee
-
-        try:
-            print(f"Backtest:  {strategy.name}")
-            print(f"Symbol:    {symbol}")
-            print(f"HTF:       {htf_tf.value}  ({htf_limit} candles)")
-            print(f"LTF:       {ltf_tf.value}  ({ltf_limit} candles)")
-            print(
-                f"Range:     {bt_from.strftime('%Y-%m-%d %H:%M')} → "
-                f"{bt_to.strftime('%Y-%m-%d %H:%M')} UTC"
+            BacktestRunner(config).run(
+                gui_output=lambda s: self._gui_queue.put(s),
+                detail_output=lambda _: None,  # captured inside BacktestRunner
+                out_path=out_path,
             )
-            print(f"Mode:      {mode_label}")
-            if mode == "baseline":
-                print(f"Timeout:   {order_timeout} LTF candles")
-                print(f"Max risk:  {max_risk_pct:.1f}% of entry")
-            print(f"Steps:     {bt_source.total_steps}")
-            print("=" * 60 + "\n")
-
-            bt_source.prepare(progress=print)
-            print()
-
-            if mode == "baseline":
-                self._run_baseline(
-                    bt_source, strategy, symbol, htf_tf, ltf_tf,
-                    order_timeout, max_risk_pct, out_path, output_lines,
-                )
-            elif mode == "agent":
-                self._run_agent_backtest(
-                    bt_source, strategy, symbol, htf_tf, ltf_tf,
-                    order_timeout, out_path, output_lines,
-                )
-            else:  # prompt
-                setups_found = 0
-                step_num = 0
-                for current_dt, htf_df, ltf_df in bt_source:
-                    step_num += 1
-                    try:
-                        setup = strategy.detect_entry(symbol, htf_df, htf_tf, ltf_df, ltf_tf)
-                    except Exception as exc:
-                        print(f"[{current_dt.strftime('%Y-%m-%d %H:%M')}] ERROR: {exc}\n")
-                        continue
-                    if setup is None:
-                        continue
-
-                    setups_found += 1
-                    print("─" * 60)
-                    print(f"Setup #{setups_found}  at  {current_dt.strftime('%Y-%m-%d %H:%M')} UTC")
-                    print("─" * 60)
-                    print(build_prompt(setup))
-                    print()
-
-                print("=" * 60)
-                print(f"Done. Setups found: {setups_found} / {step_num} candles checked.")
-                with out_path.open("w", encoding="utf-8") as f:
-                    f.writelines(output_lines)
-                print(f"\nSaved → {out_path}")
-
         except Exception as exc:
-            print(f"\n[ERROR] {exc}")
+            self._gui_queue.put(f"\n[ERROR] {exc}\n")
         finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
-            self._output_queue.put(None)
-
-    # ----------------------------------------- shared simulation engine
-
-    class _Order(TypedDict):
-        trade_num: int
-        setup_dt: datetime
-        direction: Trend
-        entry: float
-        sl: float
-        tp: float | None
-        risk: float
-        reasoning: str
-        confidence: str
-        filled: bool
-        fill_dt: datetime | None
-        candles_waiting: int
-        result: str | None
-        close_dt: datetime | None
-
-    def _simulate_trades(
-        self,
-        bt_source: BacktestDataSource,
-        strategy: HtfFvgLtfBos,
-        symbol: str,
-        htf_tf: Timeframe,
-        ltf_tf: Timeframe,
-        order_timeout: int,
-        out_path: Path,
-        output_lines: list[str],
-        get_decision: Callable[[StrategySetup], TradeDecision | None],
-        metrics_title: str,
-        max_risk_pct: float | None = None,
-    ) -> None:
-        """
-        Shared limit-order simulation engine used by both baseline and agent test.
-
-        ``get_decision`` is called once per detected setup and must return:
-        - A ``TradeDecision`` with ``should_trade=True`` to place an order, or
-        - ``None`` (or ``should_trade=False``) to skip this setup.
-
-        The decision's ``entry_price``, ``stop_loss``, and ``take_profit`` are
-        used for the simulation; ``reasoning`` and ``confidence`` are stored in
-        the trade record and printed in the results.
-
-        Order lifecycle:
-        - Limit order placed at ``entry_price`` (BOS level).
-        - Canceled if price reaches TP before the order fills (price ran away).
-        - Canceled if unfilled after ``order_timeout`` LTF candles.
-        - WIN / LOSS when TP / SL is hit after fill.
-        - OPEN when the backtest period ends before resolution.
-        """
-        _FMT = "{:,.2f}"
-
-        def _ts(dt: datetime) -> str:
-            return dt.strftime("%Y-%m-%d %H:%M")
-
-        active_order: ValidationGUI._Order | None = None
-        trades: list[ValidationGUI._Order] = []
-        skipped_no_trade = 0
-        skipped_risk = 0
-        step_num = 0
-
-        for current_dt, htf_df, ltf_df in bt_source:
-            step_num += 1
-            candle = ltf_df.iloc[-1]
-
-            # ---- manage active order ----------------------------------------
-            if active_order is not None:
-                o = active_order
-                bullish = o["direction"] == Trend.BULLISH
-
-                if not o["filled"]:
-                    o["candles_waiting"] += 1
-
-                    # Cancel: price reached TP before the order was filled
-                    if (bullish and candle["high"] >= o["tp"]) or \
-                       (not bullish and candle["low"] <= o["tp"]):
-                        o["result"] = "CANCELED_PRICE"
-                        o["close_dt"] = current_dt
-                        trades.append(o)
-                        active_order = None
-                        continue
-
-                    # Fill check
-                    filled_this_candle = (
-                        (bullish and candle["low"] <= o["entry"]) or
-                        (not bullish and candle["high"] >= o["entry"])
-                    )
-                    if filled_this_candle:
-                        o["filled"] = True
-                        o["fill_dt"] = current_dt
-                        if bullish:
-                            if candle["low"] <= o["sl"]:
-                                o["result"] = "LOSS"
-                                o["close_dt"] = current_dt
-                                trades.append(o)
-                                active_order = None
-                                continue
-                            if candle["high"] >= o["tp"]:
-                                o["result"] = "WIN"
-                                o["close_dt"] = current_dt
-                                trades.append(o)
-                                active_order = None
-                                continue
-                        else:
-                            if candle["high"] >= o["sl"]:
-                                o["result"] = "LOSS"
-                                o["close_dt"] = current_dt
-                                trades.append(o)
-                                active_order = None
-                                continue
-                            if candle["low"] <= o["tp"]:
-                                o["result"] = "WIN"
-                                o["close_dt"] = current_dt
-                                trades.append(o)
-                                active_order = None
-                                continue
-                        continue  # filled, pending resolution
-
-                    if o["candles_waiting"] >= order_timeout:
-                        o["result"] = "CANCELED_TIMEOUT"
-                        o["close_dt"] = current_dt
-                        trades.append(o)
-                        active_order = None
-                    if active_order is not None:
-                        continue
-
-                # Filled — track TP / SL each candle
-                else:
-                    if bullish:
-                        if candle["high"] >= o["tp"]:
-                            o["result"] = "WIN"
-                            o["close_dt"] = current_dt
-                            trades.append(o)
-                            active_order = None
-                        elif candle["low"] <= o["sl"]:
-                            o["result"] = "LOSS"
-                            o["close_dt"] = current_dt
-                            trades.append(o)
-                            active_order = None
-                    else:
-                        if candle["low"] <= o["tp"]:
-                            o["result"] = "WIN"
-                            o["close_dt"] = current_dt
-                            trades.append(o)
-                            active_order = None
-                        elif candle["high"] >= o["sl"]:
-                            o["result"] = "LOSS"
-                            o["close_dt"] = current_dt
-                            trades.append(o)
-                            active_order = None
-                    if active_order is not None:
-                        continue
-
-            # ---- detect setup -----------------------------------------------
-            try:
-                setup = strategy.detect_entry(symbol, htf_df, htf_tf, ltf_df, ltf_tf)
-            except Exception as exc:
-                print(f"[{_ts(current_dt)}] ERROR: {exc}\n")
-                continue
-            if setup is None:
-                continue
-
-            # ---- decision callback ------------------------------------------
-            td: TradeDecision | None = get_decision(setup)
-            if td is None or not td.should_trade:
-                skipped_no_trade += 1
-                print(f"[{_ts(current_dt)}] NO TRADE  —  {td.reasoning if td else '—'}")
-                continue
-
-            assert td.direction is not None
-            assert td.entry_price is not None and td.stop_loss is not None
-            risk = abs(td.entry_price - td.stop_loss)
-            risk_pct = risk / td.entry_price * 100
-            if max_risk_pct is not None and risk_pct > max_risk_pct:
-                skipped_risk += 1
-                print(
-                    f"[{_ts(current_dt)}] SKIPPED (risk {risk_pct:.2f}% > max {max_risk_pct:.1f}%)"
-                    f"  entry={_FMT.format(td.entry_price)}  sl={_FMT.format(td.stop_loss)}"
-                )
-                continue
-
-            trade_num = len(trades) + 1
-
-            print("─" * 60)
-            print(f"Trade #{trade_num}  at  {_ts(current_dt)} UTC")
-            print(f"Direction:   {td.direction.value.upper()}")
-            print(f"Entry:       {_FMT.format(td.entry_price)}  (limit at BOS level)")
-            print(f"Stop Loss:   {_FMT.format(td.stop_loss)}  (risk {_FMT.format(risk)})")
-            print(f"Take Profit: {_FMT.format(td.take_profit)}  "
-                  f"(reward {_FMT.format(2 * risk)}, 2:1 RR)")
-            print(f"Confidence:  {td.confidence}")
-            print(f"Reasoning:   {td.reasoning}")
-
-            active_order = ValidationGUI._Order(
-                trade_num=trade_num,
-                setup_dt=current_dt,
-                direction=td.direction,
-                entry=td.entry_price,
-                sl=td.stop_loss,
-                tp=td.take_profit,
-                risk=risk,
-                reasoning=td.reasoning,
-                confidence=td.confidence,
-                filled=False,
-                fill_dt=None,
-                candles_waiting=0,
-                result=None,
-                close_dt=None,
-            )
-
-        if active_order is not None:
-            active_order["result"] = "OPEN"
-            active_order["close_dt"] = None
-            trades.append(active_order)
-
-        # ---- trade results summary ------------------------------------------
-        print()
-        for t in trades:
-            result = t["result"]
-            print(f"  Trade #{t['trade_num']}  {t['direction'].value.upper()}"
-                  f"  →  {result}  (setup {_ts(t['setup_dt'])} UTC)")
-            if t["fill_dt"] is not None:
-                print(f"    Filled:  {_ts(t['fill_dt'])} UTC")
-            if t["close_dt"] is not None and result in ("WIN", "LOSS"):
-                print(f"    Closed:  {_ts(t['close_dt'])} UTC")
-            if t["reasoning"] != "baseline":
-                print(f"    Reasoning: {t['reasoning']}")
-
-        # ---- metrics --------------------------------------------------------
-        canceled_price   = [t for t in trades if t["result"] == "CANCELED_PRICE"]
-        canceled_timeout = [t for t in trades if t["result"] == "CANCELED_TIMEOUT"]
-        wins   = [t for t in trades if t["result"] == "WIN"]
-        losses = [t for t in trades if t["result"] == "LOSS"]
-        open_  = [t for t in trades if t["result"] == "OPEN"]
-        filled = wins + losses + open_
-
-        win_rate = (len(wins) / (len(wins) + len(losses)) * 100) if (wins or losses) else 0.0
-        net_r = len(wins) * 2.0 - len(losses) * 1.0
-
-        print()
-        print("=" * 60)
-        print(metrics_title)
-        print("─" * 60)
-        print(f"Candles checked:      {step_num}")
-        print(f"Setups detected:      {len(trades) + skipped_no_trade + skipped_risk}")
-        if skipped_no_trade:
-            print(f"  No trade (filtered): {skipped_no_trade}")
-        if skipped_risk:
-            print(f"  Risk too high:       {skipped_risk}")
-        print(f"Orders placed:        {len(trades)}")
-        print(f"  Canceled (price):   {len(canceled_price)}")
-        print(f"  Canceled (timeout): {len(canceled_timeout)}")
-        print(f"  Filled:             {len(filled)}")
-        print(f"    Wins:             {len(wins)}")
-        print(f"    Losses:           {len(losses)}")
-        print(f"    Open (end):       {len(open_)}")
-        print(f"Win rate:             {win_rate:.1f}%  ({len(wins)} / {len(wins) + len(losses)})")
-        print(f"Net R:                {net_r:+.1f}R  "
-              f"({len(wins)} × +2R,  {len(losses)} × -1R)")
-        print("=" * 60)
-
-        with out_path.open("w", encoding="utf-8") as f:
-            f.writelines(output_lines)
-        print(f"\nSaved → {out_path}")
-
-    # ----------------------------------------- mode wrappers
-
-    def _run_baseline(
-        self,
-        bt_source: BacktestDataSource,
-        strategy: HtfFvgLtfBos,
-        symbol: str,
-        htf_tf: Timeframe,
-        ltf_tf: Timeframe,
-        order_timeout: int,
-        max_risk_pct: float,
-        out_path: Path,
-        output_lines: list[str],
-    ) -> None:
-        def get_decision(setup: StrategySetup) -> TradeDecision:
-            return TradeDecision(
-                symbol=symbol,
-                should_trade=True,
-                direction=setup.direction,
-                entry_price=setup.entry,
-                stop_loss=setup.stop_loss,
-                take_profit=setup.take_profit,
-                reasoning="baseline",
-                confidence="n/a",
-            )
-
-        self._simulate_trades(
-            bt_source, strategy, symbol, htf_tf, ltf_tf,
-            order_timeout, out_path, output_lines,
-            get_decision=get_decision,
-            metrics_title="BASELINE METRICS",
-            max_risk_pct=max_risk_pct,
-        )
-
-    def _run_agent_backtest(
-        self,
-        bt_source: BacktestDataSource,
-        strategy: HtfFvgLtfBos,
-        symbol: str,
-        htf_tf: Timeframe,
-        ltf_tf: Timeframe,
-        order_timeout: int,
-        out_path: Path,
-        output_lines: list[str],
-    ) -> None:
-        agent = TradeValidationAgent(
-            LLMConfig(
-                provider=self._provider_var.get(),
-                model=self._model_var.get(),
-            )
-        )
-
-        def get_decision(setup: StrategySetup) -> TradeDecision:
-            print("Querying agent …")
-            response = agent.run(build_prompt(setup))
-            return parse_decision(symbol, response, setup)
-
-        self._simulate_trades(
-            bt_source, strategy, symbol, htf_tf, ltf_tf,
-            order_timeout, out_path, output_lines,
-            get_decision=get_decision,
-            metrics_title="AGENT TEST METRICS",
-        )
+            self._gui_queue.put(None)
 
     # -------------------------------------------------------- output helpers
 
@@ -1018,17 +552,17 @@ class ValidationGUI:
         text.delete("1.0", tk.END)
         text.config(state=tk.DISABLED)
 
-    def _poll_output_queue(self, text: tk.Text, btn: ttk.Button) -> None:
+    def _poll_gui_queue(self, text: tk.Text, btn: ttk.Button) -> None:
         try:
             while True:
-                item = self._output_queue.get_nowait()
+                item = self._gui_queue.get_nowait()
                 if item is None:
                     btn.config(state=tk.NORMAL)
                     return
                 self._append_output(text, item)
         except queue.Empty:
             pass
-        self._root.after(100, lambda: self._poll_output_queue(text, btn))
+        self._root.after(100, lambda: self._poll_gui_queue(text, btn))
 
     def _append_output(self, text: tk.Text, content: str) -> None:
         text.config(state=tk.NORMAL)

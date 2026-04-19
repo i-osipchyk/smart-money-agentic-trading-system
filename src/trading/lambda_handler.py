@@ -71,7 +71,7 @@ _strategy = _STRATEGY_REGISTRY[_STRATEGY_NAME](_FVG_OFFSET)
 _notifier = TelegramNotifier(token=_TG_TOKEN, chat_id=_TG_CHAT_ID) if _TG_TOKEN else None
 
 
-def handler(event: dict, context: object) -> dict:
+def handler(event: dict[str, object], context: object) -> dict[str, object]:
     """
     Lambda entry point.
 
