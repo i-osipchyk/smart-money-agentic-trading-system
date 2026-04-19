@@ -15,7 +15,7 @@ SMC can be implemented with deterministic rules, but context matters enormously.
 ### Pipeline
 
 1. A **Strategy** runs deterministic signal detection across HTF and LTF candles and returns a `StrategySetup` — a fully specified entry with pre-computed entry price, stop loss, and take profit.
-2. The **TradeValidationAgent** receives the setup, builds a structured prompt, and asks Claude to assess whether the setup is valid given current market structure.
+2. The **TradeValidationAgent** receives the setup, builds a structured prompt, and asks Claude (or an OpenAI model) to assess whether the setup is valid given current market structure.
 3. Claude returns a `TradeDecision`: trade or no trade, with direction, levels, confidence, and one-sentence reasoning.
 
 ### Current Strategy: HtfFvgLtfBos
@@ -30,7 +30,7 @@ No LTF confirmation → no setup returned → agent not called.
 
 ### Data
 
-All data access goes through a `DataSource` protocol — a typed interface any implementation must satisfy. Current implementations: CSV files (offline testing), Binance via `ccxt` (live/past), and a `BacktestDataSource` that streams historical windows for backtesting.
+All data access goes through a `DataSource` protocol — a typed interface any implementation must satisfy. Current implementations: CSV files (offline testing), Binance via `ccxt` (live/past), and a `BacktestDataSource` that pre-fetches a full historical window then streams `(datetime, htf_df, ltf_df)` snapshots candle-by-candle for backtesting.
 
 Initial pairs: BTC/USDT and ETH/USDT on Binance.
 
@@ -45,10 +45,35 @@ CSVDataSource / BinanceDataSource / BacktestDataSource
    - Computes entry, SL, TP
    - Returns StrategySetup (or None)
         ↓
-   TradeValidationAgent
-   - Builds structured prompt
-   - Calls Claude
-   - Returns TradeDecision
+   Runner (OneTimeRunner / BacktestRunner)
+   - prompt mode  → formats and displays the validation prompt
+   - agent mode   → calls TradeValidationAgent → TradeDecision
+   - baseline mode → simulates limit orders with fixed RR ratio
+        ↓
+   OrderSimulator  (backtest/baseline)
+   - Tracks limit-order lifecycle candle by candle
+   - Computes win rate, net R, and per-trade records
+```
+
+## GUI
+
+Launch with `uv run trading-validate`. Two tabs share a common set of controls:
+
+**Shared controls** (apply to both tabs):
+- Symbol, HTF/LTF timeframe and candle count
+- **Output Mode** — three options available in both tabs:
+  - *Prompt Validation* — display the raw Claude prompt; no agent call
+  - *Agent Test* — send the prompt to an LLM and display the decision
+  - *Baseline Metrics* — simulate trades with a fixed RR ratio, no LLM
+- Model selector (provider + model name) — active in Agent Test only
+- Baseline Options (Order Timeout, Max Risk %, RR Ratio) — active in Baseline only
+
+**One-Time Validation tab**: data source (Live / Past / CSV), optional until-datetime, CSV file pickers. In Baseline mode, future candles are fetched to evaluate the actual trade result (WIN / LOSS / CANCELED_PRICE / CANCELED_TIMEOUT / OPEN).
+
+**Backtest tab**: date range From / To. Summary and metrics are shown in the GUI; full detail (prompts, agent responses, trade log) is saved to a file:
+
+```
+backtests/{mode}/{model_if_agent}/{strategy}/{symbol}/{params}/{from}_{to}.txt
 ```
 
 ## Live Deployment (AWS Lambda)
@@ -83,7 +108,7 @@ See [docs/adr/004-lambda-deployment-architecture.md](docs/adr/004-lambda-deploym
 
 1. PoC — CSV data, signal detection validated ✓
 2. Strategy + Validation Agent — deterministic setups + Claude validation ✓
-3. Backtesting — run strategy + agent over historical data, measure PnL and win rate (in progress)
+3. Backtesting — run strategy over historical data, simulate orders, measure win rate and net R ✓
 4. Live deployment — containerized Lambda, EventBridge trigger, Telegram notifications ✓
 5. Paper trading — connect to Binance testnet, live data, simulated orders
 6. Live trading — real orders with hard position size limits
@@ -93,7 +118,7 @@ See [docs/adr/004-lambda-deployment-architecture.md](docs/adr/004-lambda-deploym
 | Layer | Tool | Why |
 |---|---|---|
 | Language | Python 3.13+ | Strong typing, modern enums, async support |
-| LLM | Claude (Anthropic) via `langchain-anthropic` | Contextual reasoning for setup validation |
+| LLM | Claude (Anthropic) or OpenAI via LangChain | Contextual reasoning for setup validation |
 | Market data | `ccxt` + Binance API | Unified exchange interface, easy to swap |
 | Data validation | Pydantic v2 | Runtime type safety for market data and strategy models |
 | Packaging | `pyproject.toml` + `uv` | Modern, fast dependency management |
@@ -105,13 +130,10 @@ See [docs/adr/004-lambda-deployment-architecture.md](docs/adr/004-lambda-deploym
 # Install dependencies
 uv sync
 
-# Add your Anthropic API key to .env
-echo "ANTHROPIC_API_KEY=sk-..." > .env
+# Add your API key(s) to .env
+echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
+echo "OPENAI_API_KEY=sk-..."        >> .env  # optional, for OpenAI models
 
 # Launch the validation GUI
 uv run trading-validate
 ```
-
-The GUI has two tabs:
-- **One-Time Validation** — run the strategy on a single snapshot (CSV, past, or live data), optionally send the setup to the agent
-- **Backtest** — run the strategy + agent across a historical date range and see aggregated win rate and R metrics
