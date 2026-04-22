@@ -14,7 +14,7 @@ from trading.core.models import StrategySetup, TradeDecision, Trend
 from trading.data.backtest_datasource import BacktestDataSource
 from trading.strategies import HtfFvgLtfBos
 
-from .config import _FMT, RunConfig, SimulationResult, _ts
+from .config import _FMT, RunConfig, SimulationResult, TradeRecord, _ts
 from .simulator import OrderSimulator
 
 
@@ -149,22 +149,14 @@ class BacktestRunner:
             metrics_title = "AGENT TEST METRICS"
 
         else:  # baseline
-            rr = cfg.rr_ratio
-
             def get_decision(setup: StrategySetup) -> TradeDecision:
-                risk = abs(setup.entry - setup.stop_loss)
-                tp = (
-                    setup.entry + risk * rr
-                    if setup.direction == Trend.BULLISH
-                    else setup.entry - risk * rr
-                )
                 return TradeDecision(
                     symbol=cfg.symbol,
                     should_trade=True,
                     direction=setup.direction,
                     entry_price=setup.entry,
                     stop_loss=setup.stop_loss,
-                    take_profit=tp,
+                    take_profit=setup.take_profit,
                     reasoning="baseline",
                     confidence="n/a",
                 )
@@ -214,7 +206,16 @@ class BacktestRunner:
         win_rate = (
             len(wins) / (len(wins) + len(losses)) * 100 if (wins or losses) else 0.0
         )
-        net_r = len(wins) * rr_ratio - len(losses) * 1.0
+        # Compute actual R from trade records (TP may vary per trade).
+        def _trade_rr(t: TradeRecord) -> float:
+            if t.tp is None:
+                return 0.0
+            return abs(t.tp - t.entry) / abs(t.entry - t.sl) if t.entry != t.sl else 0.0
+
+        net_r = sum(_trade_rr(t) for t in wins) - len(losses) * 1.0
+        avg_rr = _trade_rr(wins[0]) if len(wins) == 1 else (
+            sum(_trade_rr(t) for t in wins) / len(wins) if wins else 0.0
+        )
 
         lines = [
             "\n" + "=" * 60 + "\n",
@@ -238,8 +239,9 @@ class BacktestRunner:
             f"    Losses:           {len(losses)}\n",
             f"    Open (end):       {len(open_)}\n",
             f"Win rate:             {win_rate:.1f}%  ({len(wins)} / {total_decided})\n",
-            f"Net R:                {net_r:+.1f}R"
-            f"  ({len(wins)} × +{rr_ratio:.1f}R,  {len(losses)} × -1R)\n",
+            f"Avg RR (wins):        {avg_rr:.2f}:1\n",
+            f"Net R:                {net_r:+.2f}R"
+            f"  ({len(wins)} wins, {len(losses)} losses × -1R)\n",
             "=" * 60 + "\n",
         ]
         return "".join(lines)

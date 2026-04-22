@@ -16,6 +16,7 @@ from trading.core.models import Trend
 from trading.data.binance_datasource import BinanceDataSource
 from trading.data.csv_datasource import CSVDataSource
 from trading.strategies import HtfFvgLtfBos
+from trading.strategies.htf_fvg_ltf_bos import format_strategy_components
 
 from .config import _FMT, _TF_SECONDS, RunConfig, _ts
 
@@ -40,6 +41,16 @@ class OneTimeRunner:
             return
 
         strategy = HtfFvgLtfBos(fvg_offset_pct=cfg.fvg_offset_pct)
+
+        if cfg.output_mode == "strategy_inspect":
+            gui_output(
+                format_strategy_components(
+                    cfg.symbol, htf_df, cfg.htf_tf, ltf_df, cfg.ltf_tf,
+                    cfg.fvg_offset_pct,
+                )
+            )
+            return
+
         setup = strategy.detect_entry(
             cfg.symbol, htf_df, cfg.htf_tf, ltf_df, cfg.ltf_tf
         )
@@ -74,24 +85,23 @@ class OneTimeRunner:
             gui_output(agent.run(prompt))
 
         else:  # baseline
-            risk = abs(setup.entry - setup.stop_loss)
-            if setup.direction == Trend.BULLISH:
-                tp = setup.entry + risk * cfg.rr_ratio
-            else:
-                tp = setup.entry - risk * cfg.rr_ratio
-
-            risk_pct = risk / setup.entry * 100
+            entry = setup.entry
+            stop_loss = setup.stop_loss
+            take_profit = setup.take_profit
+            risk = abs(entry - stop_loss)
+            rr_actual = abs(take_profit - entry) / risk if risk else 0.0
+            risk_pct = risk / entry * 100
 
             out("─" * 44)
             out("BASELINE EVALUATION")
             out("")
             out(f"Direction:   {setup.direction.value.upper()}")
-            out(f"Entry:       {_FMT.format(setup.entry)}")
+            out(f"Entry:       {_FMT.format(entry)}")
             out(
-                f"Stop Loss:   {_FMT.format(setup.stop_loss)}"
+                f"Stop Loss:   {_FMT.format(stop_loss)}"
                 f"  (risk {_FMT.format(risk)}, {risk_pct:.2f}%)"
             )
-            out(f"Take Profit: {_FMT.format(tp)}  ({cfg.rr_ratio:.1f}:1 RR)")
+            out(f"Take Profit: {_FMT.format(take_profit)}  ({rr_actual:.1f}:1 RR)")
 
             if risk_pct > cfg.max_risk_pct:
                 out("")
@@ -108,9 +118,9 @@ class OneTimeRunner:
                 out("Evaluation: no future data available")
             else:
                 result, fill_dt, close_dt = self._evaluate_order(
-                    entry=setup.entry,
-                    sl=setup.stop_loss,
-                    tp=tp,
+                    entry=entry,
+                    sl=stop_loss,
+                    tp=take_profit,
                     direction=setup.direction,
                     future_candles=future,
                     order_timeout=cfg.order_timeout,

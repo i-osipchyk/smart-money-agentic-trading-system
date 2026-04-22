@@ -9,7 +9,7 @@ from typing import Literal
 from trading.agents.llm_provider import LLMConfig
 from trading.core.models import Timeframe, Trend
 
-OutputMode = Literal["prompt", "agent", "baseline"]
+OutputMode = Literal["prompt", "agent", "baseline", "strategy_inspect"]
 DataSourceType = Literal["csv", "past", "live"]
 
 _TF_SECONDS: dict[str, int] = {
@@ -73,4 +73,5 @@ class SimulationResult:
     trades: list[TradeRecord] = field(default_factory=list)
     skipped_no_trade: int = 0
     skipped_risk: int = 0
+    skipped_active_order: int = 0
     steps_checked: int = 0

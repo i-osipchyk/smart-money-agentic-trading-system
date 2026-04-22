@@ -16,9 +16,12 @@ class OrderSimulator:
     """
     Simulates limit-order lifecycle over a BacktestDataSource iteration.
 
-    All verbose per-step lines are sent to ``detail_log``; the caller decides
-    where they go (file, stdout, /dev/null).  Returns a ``SimulationResult``
-    with no side effects.
+    Multiple concurrent orders are supported:
+    - Same-direction setup while orders are active → new order added.
+    - Opposite-direction setup → all active orders closed at market (candle
+      close), new order placed.
+
+    All verbose per-step lines are sent to ``detail_log``.
     """
 
     def __init__(
@@ -60,12 +63,35 @@ class OrderSimulator:
             confidence=o["confidence"],
         )
 
+    def _close_at_market(
+        self,
+        o: dict[str, Any],
+        exit_price: float,
+        current_dt: Any,
+        trades: list[TradeRecord],
+    ) -> None:
+        """Close a filled order at ``exit_price`` (market reversal)."""
+        o_bull = o["direction"] == Trend.BULLISH
+        result = (
+            "WIN"
+            if (o_bull and exit_price >= o["entry"]) or
+               (not o_bull and exit_price <= o["entry"])
+            else "LOSS"
+        )
+        closed = dict(o)
+        closed["tp"] = exit_price  # store actual exit for RR calculation
+        trades.append(self._finalize(closed, result, current_dt))
+        self._log(
+            f"  REVERSED #{o['trade_num']} {result}"
+            f"  exit={_FMT.format(exit_price)}"
+        )
+
     def run(
         self,
         bt_source: BacktestDataSource,
         get_decision: Callable[[StrategySetup], TradeDecision | None],
     ) -> SimulationResult:
-        active_order: dict[str, Any] | None = None
+        active_orders: list[dict[str, Any]] = []
         trades: list[TradeRecord] = []
         skipped_no_trade = 0
         skipped_risk = 0
@@ -75,10 +101,11 @@ class OrderSimulator:
             step_num += 1
             candle = ltf_df.iloc[-1]
 
-            # ---- manage active order ----------------------------------------
-            if active_order is not None:
-                o = active_order
+            # ---- manage all active orders ------------------------------------
+            still_active: list[dict[str, Any]] = []
+            for o in active_orders:
                 bullish = o["direction"] == Trend.BULLISH
+                closed = False
 
                 if not o["filled"]:
                     o["candles_waiting"] += 1
@@ -87,73 +114,56 @@ class OrderSimulator:
                     if (bullish and candle["high"] >= o["tp"]) or \
                        (not bullish and candle["low"] <= o["tp"]):
                         trades.append(self._finalize(o, "CANCELED_PRICE", current_dt))
-                        active_order = None
-                        # fall through to detect_entry on the same candle
+                        closed = True
 
                     else:
-                        filled_this_candle = (
+                        filled_now = (
                             (bullish and candle["low"] <= o["entry"]) or
                             (not bullish and candle["high"] >= o["entry"])
                         )
-                        if filled_this_candle:
+                        if filled_now:
                             o["filled"] = True
                             o["fill_dt"] = current_dt
                             if bullish:
                                 if candle["low"] <= o["sl"]:
-                                    trades.append(
-                                        self._finalize(o, "LOSS", current_dt)
-                                    )
-                                    active_order = None
-                                    continue
-                                if candle["high"] >= o["tp"]:
-                                    trades.append(
-                                        self._finalize(o, "WIN", current_dt)
-                                    )
-                                    active_order = None
-                                    continue
+                                    trades.append(self._finalize(o, "LOSS", current_dt))
+                                    closed = True
+                                elif candle["high"] >= o["tp"]:
+                                    trades.append(self._finalize(o, "WIN", current_dt))
+                                    closed = True
                             else:
                                 if candle["high"] >= o["sl"]:
-                                    trades.append(
-                                        self._finalize(o, "LOSS", current_dt)
-                                    )
-                                    active_order = None
-                                    continue
-                                if candle["low"] <= o["tp"]:
-                                    trades.append(
-                                        self._finalize(o, "WIN", current_dt)
-                                    )
-                                    active_order = None
-                                    continue
-                            continue  # filled, pending resolution
+                                    trades.append(self._finalize(o, "LOSS", current_dt))
+                                    closed = True
+                                elif candle["low"] <= o["tp"]:
+                                    trades.append(self._finalize(o, "WIN", current_dt))
+                                    closed = True
 
-                        if o["candles_waiting"] >= self._order_timeout:
-                            trades.append(
-                                self._finalize(o, "CANCELED_TIMEOUT", current_dt)
-                            )
-                            active_order = None
-                            # fall through to detect_entry on the same candle
-                        else:
-                            continue
+                        elif o["candles_waiting"] >= self._order_timeout:
+                            trades.append(self._finalize(o, "CANCELED_TIMEOUT", current_dt))
+                            closed = True
 
                 else:
                     # Filled — track TP/SL each candle
                     if bullish:
                         if candle["high"] >= o["tp"]:
                             trades.append(self._finalize(o, "WIN", current_dt))
-                            active_order = None
+                            closed = True
                         elif candle["low"] <= o["sl"]:
                             trades.append(self._finalize(o, "LOSS", current_dt))
-                            active_order = None
+                            closed = True
                     else:
                         if candle["low"] <= o["tp"]:
                             trades.append(self._finalize(o, "WIN", current_dt))
-                            active_order = None
+                            closed = True
                         elif candle["high"] >= o["sl"]:
                             trades.append(self._finalize(o, "LOSS", current_dt))
-                            active_order = None
-                    if active_order is not None:
-                        continue
-                    # order just closed — fall through to detect_entry
+                            closed = True
+
+                if not closed:
+                    still_active.append(o)
+
+            active_orders = still_active
 
             # ---- detect setup -----------------------------------------------
             try:
@@ -189,13 +199,27 @@ class OrderSimulator:
                 )
                 continue
 
+            # ---- close opposite-direction orders at market ------------------
+            exit_price = float(candle["close"])
+            same_dir: list[dict[str, Any]] = []
+            for o in active_orders:
+                if o["direction"] != td.direction:
+                    if o["filled"]:
+                        self._close_at_market(o, exit_price, current_dt, trades)
+                    else:
+                        # Unfilled pending order in opposite direction — cancel it
+                        trades.append(self._finalize(o, "CANCELED_PRICE", current_dt))
+                        self._log(f"  REVERSED (pending) #{o['trade_num']} CANCELED")
+                else:
+                    same_dir.append(o)
+            active_orders = same_dir
+
+            # ---- place new order --------------------------------------------
             trade_num = len(trades) + 1
             self._log("─" * 60)
             self._log(f"Trade #{trade_num}  at  {_ts(current_dt)} UTC")
             self._log(f"Direction:   {td.direction.value.upper()}")
-            self._log(
-                f"Entry:       {_FMT.format(td.entry_price)}  (limit at BOS level)"
-            )
+            self._log(f"Entry:       {_FMT.format(td.entry_price)}  (limit at BOS level)")
             self._log(
                 f"Stop Loss:   {_FMT.format(td.stop_loss)}"
                 f"  (risk {_FMT.format(risk)})"
@@ -211,7 +235,7 @@ class OrderSimulator:
             self._log(f"Confidence:  {td.confidence}")
             self._log(f"Reasoning:   {td.reasoning}")
 
-            active_order = {
+            active_orders.append({
                 "trade_num": trade_num,
                 "setup_dt": current_dt,
                 "direction": td.direction,
@@ -224,14 +248,15 @@ class OrderSimulator:
                 "filled": False,
                 "fill_dt": None,
                 "candles_waiting": 0,
-            }
+            })
 
-        if active_order is not None:
-            trades.append(self._finalize(active_order, "OPEN", None))
+        for o in active_orders:
+            trades.append(self._finalize(o, "OPEN", None))
 
         return SimulationResult(
             trades=trades,
             skipped_no_trade=skipped_no_trade,
             skipped_risk=skipped_risk,
+            skipped_active_order=0,
             steps_checked=step_num,
         )

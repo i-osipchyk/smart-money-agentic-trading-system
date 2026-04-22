@@ -49,9 +49,9 @@ def build_prompt(setup: StrategySetup) -> str:
         f"## {setup.candles}\n"
         "\n"
         "## Task\n"
-        "Analyze the detected setup in the context of the HTF candle data above.\n"
-        "Determine whether this is a valid, high-probability trade entry.\n"
-        "Provide your reasoning and a clear decision.\n"
+        "Decide if the detected setup is aligned with current market structure.\n"
+        "If aligned, assess the probability of price reaching each candidate target "
+        "and select the best one (not necessarily the closest).\n"
         "\n"
         "## Required Response Format\n"
         "After your analysis, end your response with **exactly** this block "
@@ -59,6 +59,7 @@ def build_prompt(setup: StrategySetup) -> str:
         "\n"
         "```decision\n"
         "should_trade: YES or NO\n"
+        "target: selected TP price as a number, omit if should_trade is NO\n"
         "confidence: HIGH, MEDIUM, or LOW\n"
         "reasoning: one-sentence summary of the decisive factor\n"
         "```"
@@ -88,6 +89,7 @@ def parse_decision(symbol: str, response: str, setup: StrategySetup) -> TradeDec
     should_trade = False
     confidence = "n/a"
     reasoning = response.strip()
+    agent_target: float | None = None
 
     if _DECISION_FENCE in response:
         try:
@@ -100,6 +102,11 @@ def parse_decision(symbol: str, response: str, setup: StrategySetup) -> TradeDec
                 val = val.strip()
                 if key == "should_trade":
                     should_trade = val.upper() == "YES"
+                elif key == "target":
+                    try:
+                        agent_target = float(val.replace(",", ""))
+                    except ValueError:
+                        pass
                 elif key == "confidence":
                     confidence = val.upper()
                 elif key == "reasoning":
@@ -111,13 +118,35 @@ def parse_decision(symbol: str, response: str, setup: StrategySetup) -> TradeDec
         upper = response.upper()
         should_trade = "NO TRADE" not in upper and "TRADE" in upper
 
+    if not should_trade:
+        return TradeDecision(
+            symbol=symbol,
+            should_trade=False,
+            reasoning=reasoning,
+            confidence=confidence,
+        )
+
+    take_profit = agent_target if agent_target is not None else setup.take_profit
+    entry = setup.entry
+    stop_loss = setup.stop_loss
+
+    # Adjust entry toward stop loss to achieve 2:1 RR when the selected target is too close.
+    # Solving (|tp - e|) / (|e - sl|) = 2  →  e = (tp + 2*sl) / 3  (valid for both directions).
+    if setup.direction.value == "bullish":
+        rr = (take_profit - entry) / (entry - stop_loss) if entry != stop_loss else 0
+    else:
+        rr = (entry - take_profit) / (stop_loss - entry) if stop_loss != entry else 0
+
+    if rr < 2.0:
+        entry = (take_profit + 2 * stop_loss) / 3
+
     return TradeDecision(
         symbol=symbol,
-        should_trade=should_trade,
-        direction=setup.direction if should_trade else None,
-        entry_price=setup.entry if should_trade else None,
-        stop_loss=setup.stop_loss if should_trade else None,
-        take_profit=setup.take_profit if should_trade else None,
+        should_trade=True,
+        direction=setup.direction,
+        entry_price=entry,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
         reasoning=reasoning,
         confidence=confidence,
     )

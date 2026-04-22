@@ -138,7 +138,9 @@ class ValidationGUI:
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         return text
 
-    def _build_shared_controls(self, parent: ttk.Frame) -> None:
+    def _build_shared_controls(
+        self, parent: ttk.Frame, *, extra_modes: bool = False
+    ) -> None:
         """Build shared controls: timeframes, symbol, FVG offset, model, output mode."""
         # --- Timeframes ---
         tf_frame = ttk.LabelFrame(parent, text="Timeframes", padding=8)
@@ -214,11 +216,14 @@ class ValidationGUI:
         # --- Output Mode ---
         mode_frame = ttk.LabelFrame(parent, text="Output Mode", padding=8)
         mode_frame.pack(fill=tk.X, pady=(0, 8))
-        for label, value in [
+        modes = [
             ("Prompt Validation", "prompt"),
             ("Agent Test", "agent"),
             ("Baseline Metrics", "baseline"),
-        ]:
+        ]
+        if extra_modes:
+            modes.append(("Strategy Inspect", "strategy_inspect"))
+        for label, value in modes:
             ttk.Radiobutton(
                 mode_frame, text=label,
                 variable=self._output_mode_var, value=value,
@@ -303,7 +308,7 @@ class ValidationGUI:
             anchor=tk.W, pady=(2, 0)
         )
 
-        self._build_shared_controls(parent)
+        self._build_shared_controls(parent, extra_modes=True)
 
         self._submit_btn = ttk.Button(
             parent, text="Detect Entry", command=self._on_submit
@@ -456,6 +461,14 @@ class ValidationGUI:
     def _build_backtest_config(self) -> RunConfig | None:
         config = self._build_run_config()
         if config is None:
+            return None
+
+        if config.output_mode == "strategy_inspect":
+            self._gui_queue.put(
+                "[ERROR] Strategy Inspect is only available"
+                " in One-Time Validation mode.\n"
+            )
+            self._gui_queue.put(None)
             return None
 
         try:
