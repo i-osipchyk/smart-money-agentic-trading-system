@@ -399,6 +399,38 @@ def _format_target(fvgs: list[FVG], fractals: list[Fractal], direction: Trend) -
     return "\n".join(lines)
 
 
+def format_strategy_components(
+    symbol: str,
+    htf_df: pd.DataFrame,
+    htf_timeframe: Timeframe,
+    ltf_df: pd.DataFrame,
+    ltf_timeframe: Timeframe,
+    fvg_offset_pct: float,
+) -> str:
+    """Return a full human-readable breakdown of all strategy components."""
+    htf_fvgs = detect_fvg(htf_df, htf_timeframe)
+    htf_fractals = detect_fractals(htf_df, htf_timeframe)
+
+    sep = "─" * 56
+    lines: list[str] = [
+        "STRATEGY INSPECTION — HTF FVG + LTF BOS",
+        sep,
+        _format_input_data(
+            symbol, htf_df, htf_timeframe, ltf_df, ltf_timeframe, fvg_offset_pct
+        ),
+        "",
+        sep,
+        _format_target(htf_fvgs, htf_fractals, Trend.BULLISH),
+        "",
+        sep,
+        _format_target(htf_fvgs, htf_fractals, Trend.BEARISH),
+        "",
+        sep,
+        _format_candles(htf_df, htf_timeframe),
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _format_candles(df: pd.DataFrame, timeframe: Timeframe) -> str:
     header = (
         f"HTF Candles ({timeframe.value}, {len(df)} candles)\n"

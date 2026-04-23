@@ -15,10 +15,8 @@ from trading.agents.trade_validation_agent import (
 from trading.core.models import Trend
 from trading.data.binance_datasource import BinanceDataSource
 from trading.data.csv_datasource import CSVDataSource
-from trading.strategies import HtfFvgLtfBos
-from trading.strategies.htf_fvg_ltf_bos import format_strategy_components
 
-from .config import _FMT, _TF_SECONDS, RunConfig, _ts
+from .config import _FMT, _TF_SECONDS, RunConfig, make_strategy, _ts
 
 
 class OneTimeRunner:
@@ -40,11 +38,14 @@ class OneTimeRunner:
             out(f"[ERROR] {exc}")
             return
 
-        strategy = HtfFvgLtfBos(fvg_offset_pct=cfg.fvg_offset_pct)
+        strategy = make_strategy(cfg.strategy, cfg.fvg_offset_pct)
 
         if cfg.output_mode == "strategy_inspect":
+            from trading.strategies.htf_fvg_ltf_bos_v2 import format_strategy_components as _fmt_v2
+            from trading.strategies.htf_fvg_ltf_bos import format_strategy_components as _fmt_v1
+            _fmt = _fmt_v2 if cfg.strategy == "htf_fvg_ltf_bos_v2" else _fmt_v1
             gui_output(
-                format_strategy_components(
+                _fmt(
                     cfg.symbol, htf_df, cfg.htf_tf, ltf_df, cfg.ltf_tf,
                     cfg.fvg_offset_pct,
                 )

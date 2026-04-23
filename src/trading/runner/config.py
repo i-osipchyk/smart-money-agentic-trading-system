@@ -8,9 +8,13 @@ from typing import Literal
 
 from trading.agents.llm_provider import LLMConfig
 from trading.core.models import Timeframe, Trend
+from trading.strategies.base import Strategy
+from trading.strategies.htf_fvg_ltf_bos import HtfFvgLtfBos
+from trading.strategies.htf_fvg_ltf_bos_v2 import HtfFvgLtfBosV2
 
 OutputMode = Literal["prompt", "agent", "baseline", "strategy_inspect"]
 DataSourceType = Literal["csv", "past", "live"]
+StrategyKey = Literal["htf_fvg_ltf_bos", "htf_fvg_ltf_bos_v2"]
 
 _TF_SECONDS: dict[str, int] = {
     "5m": 300,
@@ -21,6 +25,16 @@ _TF_SECONDS: dict[str, int] = {
 }
 
 _FMT = "{:,.2f}"
+
+
+_STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
+    "htf_fvg_ltf_bos": HtfFvgLtfBos,
+    "htf_fvg_ltf_bos_v2": HtfFvgLtfBosV2,
+}
+
+
+def make_strategy(key: StrategyKey, fvg_offset_pct: float) -> Strategy:
+    return _STRATEGY_REGISTRY[key](fvg_offset_pct=fvg_offset_pct)
 
 
 def _ts(dt: datetime) -> str:
@@ -37,6 +51,7 @@ class RunConfig:
     ltf_limit: int
     fvg_offset_pct: float
     output_mode: OutputMode
+    strategy: StrategyKey = "htf_fvg_ltf_bos_v2"
     # one-time data source
     data_source: DataSourceType = "live"
     htf_csv: str | None = None

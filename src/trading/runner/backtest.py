@@ -12,9 +12,9 @@ from trading.agents.trade_validation_agent import (
 )
 from trading.core.models import StrategySetup, TradeDecision, Trend
 from trading.data.backtest_datasource import BacktestDataSource
-from trading.strategies import HtfFvgLtfBos
+from trading.strategies.base import Strategy
 
-from .config import _FMT, RunConfig, SimulationResult, TradeRecord, _ts
+from .config import _FMT, RunConfig, SimulationResult, TradeRecord, make_strategy, _ts
 from .simulator import OrderSimulator
 
 
@@ -33,7 +33,7 @@ class BacktestRunner:
         cfg = self._config
         assert cfg.bt_from is not None and cfg.bt_to is not None
 
-        strategy = HtfFvgLtfBos(fvg_offset_pct=cfg.fvg_offset_pct)
+        strategy = make_strategy(cfg.strategy, cfg.fvg_offset_pct)
         bt_source = BacktestDataSource(
             symbol=cfg.symbol,
             htf_timeframe=cfg.htf_tf.value,
@@ -93,7 +93,7 @@ class BacktestRunner:
     def _run_prompt(
         self,
         bt_source: BacktestDataSource,
-        strategy: HtfFvgLtfBos,
+        strategy: Strategy,
         gui_output: Callable[[str], None],
         detail_output: Callable[[str], None],
     ) -> None:
@@ -130,7 +130,7 @@ class BacktestRunner:
     def _run_simulation(
         self,
         bt_source: BacktestDataSource,
-        strategy: HtfFvgLtfBos,
+        strategy: Strategy,
         gui_output: Callable[[str], None],
         detail_output: Callable[[str], None],
     ) -> None:

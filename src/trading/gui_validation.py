@@ -8,7 +8,7 @@ from tkinter import ttk
 
 from trading.agents.llm_provider import PROVIDERS, LLMConfig
 from trading.core.models import Timeframe
-from trading.runner import BacktestRunner, OneTimeRunner, RunConfig
+from trading.runner import BacktestRunner, OneTimeRunner, RunConfig, StrategyKey
 
 _TF_VALUES = ["5m", "15m", "1h", "4h", "1d"]
 _TF_SECONDS: dict[str, int] = {
@@ -47,6 +47,9 @@ class ValidationGUI:
         self._ltf_limit_var = tk.StringVar(value="24")
         self._symbol_var = tk.StringVar(value="BTC/USDT:USDT")
         self._offset_var = tk.StringVar(value="10")  # tenths of a percent
+
+        # strategy selector — shared
+        self._strategy_var = tk.StringVar(value="htf_fvg_ltf_bos_v2")
 
         # output mode — shared, drives both tabs
         self._output_mode_var = tk.StringVar(value="prompt")
@@ -175,6 +178,17 @@ class ValidationGUI:
         sym_frame = ttk.LabelFrame(parent, text="Symbol", padding=8)
         sym_frame.pack(fill=tk.X, pady=(0, 8))
         ttk.Entry(sym_frame, textvariable=self._symbol_var, width=18).pack(anchor=tk.W)
+
+        # --- Strategy ---
+        strat_frame = ttk.LabelFrame(parent, text="Strategy", padding=8)
+        strat_frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Combobox(
+            strat_frame,
+            textvariable=self._strategy_var,
+            values=["htf_fvg_ltf_bos", "htf_fvg_ltf_bos_v2"],
+            state="readonly",
+            width=22,
+        ).pack(anchor=tk.W)
 
         # --- FVG Offset ---
         opt_frame = ttk.LabelFrame(parent, text="Options", padding=8)
@@ -428,6 +442,7 @@ class ValidationGUI:
             ltf_limit=ltf_limit,
             fvg_offset_pct=offset_pct,
             output_mode=self._output_mode_var.get(),  # type: ignore[arg-type]
+            strategy=self._strategy_var.get(),  # type: ignore[arg-type]
             llm_config=LLMConfig(
                 provider=self._provider_var.get(),
                 model=self._model_var.get(),
@@ -491,8 +506,7 @@ class ValidationGUI:
         return config
 
     def _build_out_path(self, config: RunConfig) -> Path:
-        from trading.strategies import HtfFvgLtfBos
-        strategy_name = HtfFvgLtfBos().name
+        strategy_name = config.strategy
         mode_label = _MODE_LABELS[config.output_mode]
         assert config.bt_from is not None and config.bt_to is not None
         from_str = config.bt_from.strftime("%Y%m%d-%H%M")

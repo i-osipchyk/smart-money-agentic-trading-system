@@ -7,7 +7,7 @@ from typing import Any
 
 from trading.core.models import StrategySetup, Timeframe, TradeDecision, Trend
 from trading.data.backtest_datasource import BacktestDataSource
-from trading.strategies import HtfFvgLtfBos
+from trading.strategies.base import Strategy
 
 from .config import _FMT, SimulationResult, TradeRecord, _ts
 
@@ -26,7 +26,7 @@ class OrderSimulator:
 
     def __init__(
         self,
-        strategy: HtfFvgLtfBos,
+        strategy: Strategy,
         symbol: str,
         htf_tf: Timeframe,
         ltf_tf: Timeframe,

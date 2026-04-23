@@ -6,7 +6,9 @@ from .config import (
     OutputMode,
     RunConfig,
     SimulationResult,
+    StrategyKey,
     TradeRecord,
+    make_strategy,
 )
 from .onetime import OneTimeRunner
 from .simulator import OrderSimulator
@@ -19,5 +21,7 @@ __all__ = [
     "OutputMode",
     "RunConfig",
     "SimulationResult",
+    "StrategyKey",
     "TradeRecord",
+    "make_strategy",
 ]
