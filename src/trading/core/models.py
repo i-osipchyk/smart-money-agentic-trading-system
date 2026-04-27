@@ -18,12 +18,19 @@ class Trend(str, Enum):
     RANGING = "ranging"
 
 
+class FvgStatus(str, Enum):
+    ACTIVE = "active"
+    TESTED = "tested"
+    INVALIDATED = "invalidated"
+
+
 class FVG(BaseModel):
     timestamp: datetime
     top: float
     bottom: float
     trend: Trend
     timeframe: Timeframe
+    status: FvgStatus = FvgStatus.ACTIVE
 
 
 class Fractal(BaseModel):

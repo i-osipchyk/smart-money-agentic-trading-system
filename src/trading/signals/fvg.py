@@ -2,7 +2,7 @@ from datetime import timedelta
 
 import pandas as pd
 
-from trading.core.models import FVG, Timeframe, Trend
+from trading.core.models import FVG, FvgStatus, Timeframe, Trend
 
 _TIMEFRAME_DURATION: dict[Timeframe, timedelta] = {
     Timeframe.M5:  timedelta(minutes=5),
@@ -40,30 +40,42 @@ def detect_fvg(df: pd.DataFrame, timeframe: Timeframe) -> list[FVG]:
 
         if nxt["low"] > prev["high"]:
             bottom = float(prev["high"])
-            subsequent_closes = df.iloc[i + 2 :]["close"]
-            if not (subsequent_closes < bottom).any():
-                fvgs.append(
-                    FVG(
-                        timestamp=nxt["timestamp"] + _TIMEFRAME_DURATION[timeframe],
-                        top=nxt["low"],
-                        bottom=bottom,
-                        trend=Trend.BULLISH,
-                        timeframe=timeframe,
-                    )
+            top = float(nxt["low"])
+            subsequent = df.iloc[i + 2 :]
+            if (subsequent["close"] < bottom).any():
+                continue  # invalidated
+            status = (
+                FvgStatus.TESTED if (subsequent["low"] <= top).any() else FvgStatus.ACTIVE
+            )
+            fvgs.append(
+                FVG(
+                    timestamp=nxt["timestamp"] + _TIMEFRAME_DURATION[timeframe],
+                    top=top,
+                    bottom=bottom,
+                    trend=Trend.BULLISH,
+                    timeframe=timeframe,
+                    status=status,
                 )
+            )
 
         if nxt["high"] < prev["low"]:
             top = float(prev["low"])
-            subsequent_closes = df.iloc[i + 2 :]["close"]
-            if not (subsequent_closes > top).any():
-                fvgs.append(
-                    FVG(
-                        timestamp=nxt["timestamp"] + _TIMEFRAME_DURATION[timeframe],
-                        top=top,
-                        bottom=nxt["high"],
-                        trend=Trend.BEARISH,
-                        timeframe=timeframe,
-                    )
+            bottom = float(nxt["high"])
+            subsequent = df.iloc[i + 2 :]
+            if (subsequent["close"] > top).any():
+                continue  # invalidated
+            status = (
+                FvgStatus.TESTED if (subsequent["high"] >= bottom).any() else FvgStatus.ACTIVE
+            )
+            fvgs.append(
+                FVG(
+                    timestamp=nxt["timestamp"] + _TIMEFRAME_DURATION[timeframe],
+                    top=top,
+                    bottom=bottom,
+                    trend=Trend.BEARISH,
+                    timeframe=timeframe,
+                    status=status,
                 )
+            )
 
     return sorted(fvgs, key=lambda f: f.timestamp)
