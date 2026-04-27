@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from trading.core.models import FVG, Fractal, StrategySetup, Timeframe, Trend
+from trading.core.models import FVG, Fractal, FvgStatus, StrategySetup, Timeframe, Trend
 from trading.signals.fractals import detect_fractals
 from trading.signals.fvg import detect_fvg
 from trading.strategies.base import Strategy
@@ -15,41 +15,56 @@ _DESCRIPTION = """\
 HTF FVG + LTF BOS (Fair Value Gap with Break of Structure confirmation)
 
 Entry logic:
-1. [HTF] Identify all valid Fair Value Gaps (FVGs).
-   - Bullish FVG: candle[i+1].low > candle[i-1].high — an upward price gap.
-     Invalidated when any subsequent candle closes below the gap bottom.
-   - Bearish FVG: candle[i+1].high < candle[i-1].low — a downward price gap.
-     Invalidated when any subsequent candle closes above the gap top.
+1. [HTF] Identify all Fair Value Gaps (FVGs) and classify each:
+   - Active:      not yet touched by price after formation.
+   - Tested:      price entered the FVG zone but closed on the correct side.
+   - Invalidated: a subsequent candle closed through the far side of the gap
+                  (below bottom for bullish, above top for bearish).
+   Invalidated FVGs are discarded.
 
-2. [LTF] Bullish setup:
-   a. The lowest LTF swing low lies inside a valid bullish HTF FVG, or just
-      below it within the configured offset (% of FVG range).
-   b. A prior LTF swing high (the last one before the swing low) acts as the
-      Break of Structure (BOS) level.
-   c. Price closes above that BOS level after the swing low — confirming the
-      bullish directional shift.
+2. [LTF] Bullish setup — for each active/tested bullish HTF FVG (most recent first):
+   a. Collect all LTF candles formed after the FVG.
+   b. Find the lowest LTF swing low in that window.
+   c. The swing low must be within fvg_offset_pct below the FVG bottom
+      (bottom × (1 − offset) ≤ price ≤ top); skip if not.
+   d. Find the last LTF swing high before that swing low — this is the BOS level.
+   e. The setup fires only when the current (last) LTF candle is the first close
+      above that BOS level, confirming the bullish directional shift.
+   f. If no BOS on the current candle, skip to the next FVG.
 
-3. [LTF] Bearish setup:
-   a. The highest LTF swing high lies inside a valid bearish HTF FVG, or just
-      above it within the configured offset.
-   b. A prior LTF swing low (the last one before the swing high) acts as the
-      BOS level.
-   c. Price closes below that BOS level after the swing high — confirming the
-      bearish directional shift.
+3. [LTF] Bearish setup — mirror of the bullish setup:
+   a. Collect all LTF candles formed after the FVG.
+   b. Find the highest LTF swing high in that window.
+   c. The swing high must be within fvg_offset_pct above the FVG top
+      (bottom ≤ price ≤ top × (1 + offset)); skip if not.
+   d. Find the last LTF swing low before that swing high — this is the BOS level.
+   e. The setup fires when the current LTF candle is the first close below the BOS level.
+   f. If no BOS on the current candle, skip to the next FVG.
 
 4. [LTF] Stop Loss:
-    - For bullish entries: just below the swing low (which is inside the FVG).
-    - For bearish entries: just above the swing high (which is inside the FVG).
+    - For bullish entries: exactly at the lowest swing low price.
+    - For bearish entries: exactly at the highest swing high price.
 
-5. [HTF] Take Profit:
-    - For bullish entries: swing highs or low of bearish FVG.
-    - For bearish entries: swing lows or high of bullish FVG.
+5. [LTF] Entry:
+    Limit order placed at the BOS level (the prior swing that was broken).
 
-6. [LTF] Entry Order:
-    For both bullish and bearish setups, limit order which gives risk-reward at least 2:1 based on the defined stop loss and take profit levels.
+6. Take Profit:
+    2:1 reward/risk relative to entry and stop loss.
+
+7. Trend filter:
+    HTF fractals determine the macro trend: higher highs + higher lows = bullish,
+    lower highs + lower lows = bearish, mixed = no bias.
+    A setup is discarded when the signal direction conflicts with the HTF trend.
+    When HTF structure is mixed (None), the setup is allowed through.
+
+8. Path filter:
+    If any active opposing-direction HTF FVG sits between entry and take profit,
+    the setup is discarded — supply/demand zones on the path are likely to reject
+    price before the target is reached.
+    When block_tested_fvgs is enabled, tested opposing FVGs also block the setup.
 
 The HTF FVG is the Point of Interest (POI) / demand or supply zone.
-The LTF swing point marks the liquidity sweep / wick into that zone.
+The LTF swing point marks the liquidity sweep near that zone.
 The BOS confirms that smart money has absorbed liquidity and is pushing price.\
 """
 
@@ -74,16 +89,24 @@ class HtfFvgLtfBos(Strategy):
     Structure to confirm directional intent.
 
     Args:
-        fvg_offset_pct: Fraction of the FVG range that the LTF swing point
-                        may sit outside the gap and still qualify.
-                        Spinner value ÷ 1000 (e.g. 10 → 0.001 → 0.1 %).
+        fvg_offset_pct:     Extends the qualifying zone beyond the FVG edge as a
+                            fraction of that edge price: bullish lows qualify down to
+                            bottom × (1 − pct); bearish highs qualify up to
+                            top × (1 + pct). Default 0.0005 (0.05 %).
+        block_tested_fvgs:  When True, tested opposing FVGs also block the path
+                            filter (step 8). Default False (only active FVGs block).
     """
 
     name = "htf_fvg_ltf_bos"
     description = _DESCRIPTION
 
-    def __init__(self, fvg_offset_pct: float = 0.001) -> None:
+    def __init__(
+        self,
+        fvg_offset_pct: float = 0.0005,
+        block_tested_fvgs: bool = False,
+    ) -> None:
         self._fvg_offset_pct = fvg_offset_pct
+        self._block_tested_fvgs = block_tested_fvgs
 
     def detect_entry(
         self,
@@ -101,17 +124,24 @@ class HtfFvgLtfBos(Strategy):
         htf_fractals = detect_fractals(htf_df, htf_timeframe)
         ltf_fractals = detect_fractals(ltf_df, ltf_timeframe)
 
-        _log_findings(htf_fvgs, ltf_fractals, self._fvg_offset_pct)
+        _log_findings(htf_fvgs, ltf_fractals)
 
         signal = _find_signal(htf_fvgs, ltf_fractals, ltf_df, self._fvg_offset_pct)
         if signal is None:
             return None
 
+        htf_trend = trend_from_fractals(htf_fractals)
+        if htf_trend is not None and htf_trend != signal.direction:
+            return None
+
         entry, stop_loss, take_profit = _compute_levels(signal)
+
+        if _has_blocking_fvg(htf_fvgs, signal.direction, entry, take_profit, self._block_tested_fvgs):
+            return None
 
         return StrategySetup(
             input_data=_format_input_data(
-                symbol, htf_df, htf_timeframe, ltf_df, ltf_timeframe, self._fvg_offset_pct
+                symbol, htf_df, htf_timeframe, ltf_df, ltf_timeframe
             ),
             strategy_description=self.description,
             direction=signal.direction,
@@ -127,16 +157,35 @@ class HtfFvgLtfBos(Strategy):
 
 # ------------------------------------------------------------------ internals
 
+def trend_from_fractals(fractals: list[Fractal]) -> Trend | None:
+    highs = sorted([f for f in fractals if f.is_high], key=lambda f: f.timestamp)
+    lows = sorted([f for f in fractals if not f.is_high], key=lambda f: f.timestamp)
+
+    if len(highs) < 2 or len(lows) < 2:
+        return None
+
+    hh = highs[-1].price > highs[-2].price
+    hl = lows[-1].price > lows[-2].price
+    lh = highs[-1].price < highs[-2].price
+    ll = lows[-1].price < lows[-2].price
+
+    if hh and hl:
+        return Trend.BULLISH
+    if lh and ll:
+        return Trend.BEARISH
+    return None
+
+
 def _log_findings(
     htf_fvgs: list[FVG],
     ltf_fractals: list[Fractal],
-    fvg_offset_pct: float,
 ) -> None:
     logger.info("HTF FVGs found: %d", len(htf_fvgs))
     for fvg in htf_fvgs:
         logger.info(
-            "  FVG [%s] top=%.2f bottom=%.2f formed=%s",
+            "  FVG [%s][%s] top=%.2f bottom=%.2f formed=%s",
             fvg.trend.value,
+            fvg.status.value,
             fvg.top,
             fvg.bottom,
             fvg.timestamp.strftime("%Y-%m-%d %H:%M"),
@@ -152,34 +201,12 @@ def _log_findings(
             f.timestamp.strftime("%Y-%m-%d %H:%M"),
         )
 
-    inside: list[tuple[Fractal, FVG]] = []
-    for f in ltf_fractals:
-        for fvg in htf_fvgs:
-            offset = (fvg.top - fvg.bottom) * fvg_offset_pct
-            low = fvg.bottom - offset
-            high = fvg.top + offset
-            if low <= f.price <= high:
-                inside.append((f, fvg))
-
-    logger.info("LTF fractals inside an HTF FVG (±offset): %d", len(inside))
-    for f, fvg in inside:
-        kind = "high" if f.is_high else "low"
-        logger.info(
-            "  Fractal [%s] price=%.2f at=%s  →  FVG [%s] bottom=%.2f top=%.2f",
-            kind,
-            f.price,
-            f.timestamp.strftime("%Y-%m-%d %H:%M"),
-            fvg.trend.value,
-            fvg.bottom,
-            fvg.top,
-        )
-
 
 def _find_signal(
     htf_fvgs: list[FVG],
     ltf_fractals: list[Fractal],
     ltf_df: pd.DataFrame,
-    fvg_offset_pct: float,
+    fvg_offset_pct: float = 0.0,
 ) -> _EntrySignal | None:
     if not htf_fvgs or not ltf_fractals:
         return None
@@ -194,87 +221,120 @@ def _find_signal(
     bearish_fvgs = [f for f in htf_fvgs if f.trend == Trend.BEARISH]
 
     # ---------------------------------------------------------------- bullish
-    bullish_candidates: list[tuple[Fractal, FVG]] = []
-    for swing_low in swing_lows:
-        for fvg in reversed(bullish_fvgs):  # most-recent FVG first
-            if swing_low.timestamp <= fvg.timestamp:
-                continue
-            offset = (fvg.top - fvg.bottom) * fvg_offset_pct
-            if (fvg.bottom - offset) <= swing_low.price <= fvg.top:
-                bullish_candidates.append((swing_low, fvg))
-                break  # use the most-recent FVG for this swing
+    for fvg in reversed(bullish_fvgs):  # most-recent FVG first
+        lows_after = [lo for lo in swing_lows if lo.timestamp > fvg.timestamp]
+        if not lows_after:
+            continue
+        swing_low = min(lows_after, key=lambda f: f.price)
+        if not (fvg.bottom * (1 - fvg_offset_pct) <= swing_low.price <= fvg.top):
+            continue
 
-    if bullish_candidates:
-        swing_low, fvg = min(bullish_candidates, key=lambda x: x[0].price)
         prior_highs = [h for h in swing_highs if h.timestamp < swing_low.timestamp]
-        if prior_highs:
-            prior_swing_high = prior_highs[-1]
-            candles_after = ltf_df[ltf_df["timestamp"] > swing_low.timestamp]
-            bos_rows = candles_after[candles_after["close"] > prior_swing_high.price]
-            if not bos_rows.empty:
-                bos_candle = bos_rows.iloc[0]
-                if bos_candle["timestamp"] == last_candle_ts:
-                    return _EntrySignal(
-                        direction=Trend.BULLISH,
-                        fvg=fvg,
-                        swing_point=swing_low,
-                        prior_swing=prior_swing_high,
-                        bos_candle_timestamp=bos_candle["timestamp"],
-                        bos_level=prior_swing_high.price,
-                    )
+        if not prior_highs:
+            continue
+        prior_swing_high = prior_highs[-1]
+
+        candles_after = ltf_df[ltf_df["timestamp"] > swing_low.timestamp]
+        bos_rows = candles_after[candles_after["close"] > prior_swing_high.price]
+        if bos_rows.empty:
+            continue
+        bos_candle = bos_rows.iloc[0]
+        if bos_candle["timestamp"] != last_candle_ts:
+            continue
+
+        return _EntrySignal(
+            direction=Trend.BULLISH,
+            fvg=fvg,
+            swing_point=swing_low,
+            prior_swing=prior_swing_high,
+            bos_candle_timestamp=bos_candle["timestamp"],
+            bos_level=prior_swing_high.price,
+        )
 
     # ---------------------------------------------------------------- bearish
-    bearish_candidates: list[tuple[Fractal, FVG]] = []
-    for swing_high in swing_highs:
-        for fvg in reversed(bearish_fvgs):  # most-recent FVG first
-            if swing_high.timestamp <= fvg.timestamp:
-                continue
-            offset = (fvg.top - fvg.bottom) * fvg_offset_pct
-            if fvg.bottom <= swing_high.price <= (fvg.top + offset):
-                bearish_candidates.append((swing_high, fvg))
-                break  # use the most-recent FVG for this swing
+    for fvg in reversed(bearish_fvgs):  # most-recent FVG first
+        highs_after = [h for h in swing_highs if h.timestamp > fvg.timestamp]
+        if not highs_after:
+            continue
+        swing_high = max(highs_after, key=lambda f: f.price)
+        if not (fvg.bottom <= swing_high.price <= fvg.top * (1 + fvg_offset_pct)):
+            continue
 
-    if bearish_candidates:
-        swing_high, fvg = max(bearish_candidates, key=lambda x: x[0].price)
         prior_lows = [lo for lo in swing_lows if lo.timestamp < swing_high.timestamp]
-        if prior_lows:
-            prior_swing_low = prior_lows[-1]
-            candles_after = ltf_df[ltf_df["timestamp"] > swing_high.timestamp]
-            bos_rows = candles_after[candles_after["close"] < prior_swing_low.price]
-            if not bos_rows.empty:
-                bos_candle = bos_rows.iloc[0]
-                if bos_candle["timestamp"] == last_candle_ts:
-                    return _EntrySignal(
-                        direction=Trend.BEARISH,
-                        fvg=fvg,
-                        swing_point=swing_high,
-                        prior_swing=prior_swing_low,
-                        bos_candle_timestamp=bos_candle["timestamp"],
-                        bos_level=prior_swing_low.price,
-                    )
+        if not prior_lows:
+            continue
+        prior_swing_low = prior_lows[-1]
+
+        candles_after = ltf_df[ltf_df["timestamp"] > swing_high.timestamp]
+        bos_rows = candles_after[candles_after["close"] < prior_swing_low.price]
+        if bos_rows.empty:
+            continue
+        bos_candle = bos_rows.iloc[0]
+        if bos_candle["timestamp"] != last_candle_ts:
+            continue
+
+        return _EntrySignal(
+            direction=Trend.BEARISH,
+            fvg=fvg,
+            swing_point=swing_high,
+            prior_swing=prior_swing_low,
+            bos_candle_timestamp=bos_candle["timestamp"],
+            bos_level=prior_swing_low.price,
+        )
 
     return None
 
 
 # --------------------------------------------------------- level computation
 
+def _has_blocking_fvg(
+    htf_fvgs: list[FVG],
+    direction: Trend,
+    entry: float,
+    take_profit: float,
+    block_tested: bool = False,
+) -> bool:
+    """True if a qualifying opposing-direction FVG overlaps the entry→TP path.
+
+    Active FVGs always qualify. Tested FVGs qualify only when block_tested is True.
+    """
+    def _qualifies(fvg: FVG) -> bool:
+        return fvg.status == FvgStatus.ACTIVE or (block_tested and fvg.status == FvgStatus.TESTED)
+
+    if direction == Trend.BULLISH:
+        return any(
+            fvg.trend == Trend.BEARISH
+            and _qualifies(fvg)
+            and fvg.bottom < take_profit
+            and fvg.top > entry
+            for fvg in htf_fvgs
+        )
+    else:
+        return any(
+            fvg.trend == Trend.BULLISH
+            and _qualifies(fvg)
+            and fvg.top > take_profit
+            and fvg.bottom < entry
+            for fvg in htf_fvgs
+        )
+
+
 def _compute_levels(signal: _EntrySignal) -> tuple[float, float, float]:
     """
     Return (entry, stop_loss, take_profit) for a baseline limit order.
 
     - Entry:      BOS level (limit order placed at the prior swing that was broken).
-    - Stop Loss:  1 unit beyond the swing point that entered the FVG, rounded to
-                  the nearest integer (floor for bullish, ceil for bearish).
+    - Stop Loss:  exactly at the swing point price.
     - Take Profit: 2:1 reward/risk relative to entry.
     """
     entry = signal.bos_level
 
     if signal.direction == Trend.BULLISH:
-        stop_loss = float(round(signal.swing_point.price) - 1)
+        stop_loss = signal.swing_point.price
         risk = entry - stop_loss
         take_profit = entry + 2 * risk
     else:
-        stop_loss = float(round(signal.swing_point.price) + 1)
+        stop_loss = signal.swing_point.price
         risk = stop_loss - entry
         take_profit = entry - 2 * risk
 
@@ -297,22 +357,20 @@ def _format_input_data(
     htf_timeframe: Timeframe,
     ltf_df: pd.DataFrame,
     ltf_timeframe: Timeframe,
-    fvg_offset_pct: float,
 ) -> str:
-    offset_display = fvg_offset_pct * 100
     return "\n".join([
         f"Symbol:     {symbol}",
         f"HTF:        {htf_timeframe.value}  ({len(htf_df)} candles)",
         f"LTF:        {ltf_timeframe.value}  ({len(ltf_df)} candles)",
         f"HTF range:  {_ts(htf_df['timestamp'].iloc[0])} → {_ts(htf_df['timestamp'].iloc[-1])}",
         f"LTF range:  {_ts(ltf_df['timestamp'].iloc[0])} → {_ts(ltf_df['timestamp'].iloc[-1])}",
-        f"FVG offset: {offset_display:.1f} %",
     ])
 
 
 def _format_htf_poi(signal: _EntrySignal) -> str:
     return "\n".join([
         "HTF FVG (Point of Interest)",
+        f"  Status: {signal.fvg.status.value}",
         f"  Top:    {_fmt(signal.fvg.top)}",
         f"  Bottom: {_fmt(signal.fvg.bottom)}",
         f"  Formed: {_ts(signal.fvg.timestamp)}",
@@ -329,7 +387,7 @@ def _format_confirm_details(signal: _EntrySignal) -> str:
     bos_verb = "above" if signal.direction == Trend.BULLISH else "below"
 
     return "\n".join([
-        f"{swing_label} (inside FVG)",
+        f"{swing_label} (after FVG)",
         f"  Price:  {_fmt(signal.swing_point.price)}",
         f"  At:     {_ts(signal.swing_point.timestamp)}",
         "",
@@ -405,19 +463,42 @@ def format_strategy_components(
     htf_timeframe: Timeframe,
     ltf_df: pd.DataFrame,
     ltf_timeframe: Timeframe,
-    fvg_offset_pct: float,
+    fvg_offset_pct: float = 0.0,
 ) -> str:
     """Return a full human-readable breakdown of all strategy components."""
     htf_fvgs = detect_fvg(htf_df, htf_timeframe)
     htf_fractals = detect_fractals(htf_df, htf_timeframe)
 
+    bullish_fvgs = [f for f in htf_fvgs if f.trend == Trend.BULLISH]
+    bearish_fvgs = [f for f in htf_fvgs if f.trend == Trend.BEARISH]
+
     sep = "─" * 56
     lines: list[str] = [
         "STRATEGY INSPECTION — HTF FVG + LTF BOS",
         sep,
-        _format_input_data(
-            symbol, htf_df, htf_timeframe, ltf_df, ltf_timeframe, fvg_offset_pct
-        ),
+        _format_input_data(symbol, htf_df, htf_timeframe, ltf_df, ltf_timeframe),
+        "",
+        sep,
+        f"HTF FVGs ({len(htf_fvgs)} total: {len(bullish_fvgs)} bullish, {len(bearish_fvgs)} bearish)",
+        "",
+    ]
+    lines.append(f"  Bullish FVGs ({len(bullish_fvgs)})")
+    for i, fvg in enumerate(bullish_fvgs, 1):
+        lines.append(
+            f"    {i}. bottom {_fmt(fvg.bottom)}  top {_fmt(fvg.top)}"
+            f"  formed {_ts(fvg.timestamp)}  [{fvg.status.value}]"
+        )
+    if not bullish_fvgs:
+        lines.append("    (none)")
+    lines.append(f"  Bearish FVGs ({len(bearish_fvgs)})")
+    for i, fvg in enumerate(bearish_fvgs, 1):
+        lines.append(
+            f"    {i}. bottom {_fmt(fvg.bottom)}  top {_fmt(fvg.top)}"
+            f"  formed {_ts(fvg.timestamp)}  [{fvg.status.value}]"
+        )
+    if not bearish_fvgs:
+        lines.append("    (none)")
+    lines += [
         "",
         sep,
         _format_target(htf_fvgs, htf_fractals, Trend.BULLISH),
