@@ -31,8 +31,8 @@ class ValidationGUI:
     def __init__(self, root: tk.Tk) -> None:
         self._root = root
         self._root.title("Trade Validation — SMC Entry Detector")
-        self._root.geometry("1100x900")
-        self._root.minsize(800, 500)
+        self._root.geometry("1300x1000")
+        self._root.minsize(900, 560)
 
         self._gui_queue: queue.Queue[str | None] = queue.Queue()
 
@@ -46,7 +46,8 @@ class ValidationGUI:
         self._htf_limit_var = tk.StringVar(value="72")
         self._ltf_limit_var = tk.StringVar(value="24")
         self._symbol_var = tk.StringVar(value="BTC/USDT:USDT")
-        self._offset_var = tk.StringVar(value="10")  # tenths of a percent
+        self._offset_var = tk.StringVar(value="0.05")  # percent
+        self._block_tested_var = tk.BooleanVar(value=False)
 
         # strategy selector — shared
         self._strategy_var = tk.StringVar(value="htf_fvg_ltf_bos_v2")
@@ -112,7 +113,7 @@ class ValidationGUI:
         )
         pane.pack(fill=tk.BOTH, expand=True)
 
-        left = ttk.Frame(pane, width=310, padding=10)
+        left = ttk.Frame(pane, width=360, padding=10)
         left.pack_propagate(False)
         pane.add(left, minsize=260)
 
@@ -190,17 +191,22 @@ class ValidationGUI:
             width=22,
         ).pack(anchor=tk.W)
 
-        # --- FVG Offset ---
-        opt_frame = ttk.LabelFrame(parent, text="Options", padding=8)
+        # --- Strategy Parameters ---
+        opt_frame = ttk.LabelFrame(parent, text="Strategy Parameters", padding=8)
         opt_frame.pack(fill=tk.X, pady=(0, 8))
         opt_inner = ttk.Frame(opt_frame)
         opt_inner.pack(fill=tk.X)
-        ttk.Label(opt_inner, text="FVG offset (×0.1%)").grid(
+        ttk.Label(opt_inner, text="FVG offset (%)").grid(
             row=0, column=0, sticky=tk.W, padx=(0, 6)
         )
         ttk.Spinbox(
-            opt_inner, textvariable=self._offset_var, from_=0, to=1000, width=5,
+            opt_inner, textvariable=self._offset_var,
+            from_=0.0, to=100.0, increment=0.05, format="%.2f", width=7,
         ).grid(row=0, column=1, sticky=tk.W)
+        ttk.Checkbutton(
+            opt_inner, text="Block tested FVGs on path",
+            variable=self._block_tested_var,
+        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
 
         # --- Model ---
         model_frame = ttk.LabelFrame(parent, text="Model", padding=8)
@@ -419,7 +425,7 @@ class ValidationGUI:
             return None
 
         try:
-            offset_pct = float(self._offset_var.get()) / 1000.0
+            offset_pct = float(self._offset_var.get()) / 100.0
         except ValueError as exc:
             self._gui_queue.put(f"[ERROR] Invalid FVG offset: {exc}\n")
             self._gui_queue.put(None)
@@ -443,6 +449,7 @@ class ValidationGUI:
             fvg_offset_pct=offset_pct,
             output_mode=self._output_mode_var.get(),  # type: ignore[arg-type]
             strategy=self._strategy_var.get(),  # type: ignore[arg-type]
+            block_tested_fvgs=self._block_tested_var.get(),
             llm_config=LLMConfig(
                 provider=self._provider_var.get(),
                 model=self._model_var.get(),
@@ -524,17 +531,18 @@ class ValidationGUI:
 
         # Strategy params relevant to each mode
         offset_pct = config.fvg_offset_pct * 100
+        btested = "_btested" if config.block_tested_fvgs else ""
         if config.output_mode == "prompt":
-            params = f"fvg{offset_pct:.4g}pct"
+            params = f"fvg{offset_pct:.4g}pct{btested}"
         elif config.output_mode == "agent":
             params = (
-                f"fvg{offset_pct:.4g}pct"
+                f"fvg{offset_pct:.4g}pct{btested}"
                 f"_to{config.order_timeout}"
                 f"_risk{config.max_risk_pct:.4g}pct"
             )
         else:  # baseline
             params = (
-                f"fvg{offset_pct:.4g}pct"
+                f"fvg{offset_pct:.4g}pct{btested}"
                 f"_rr{config.rr_ratio:.4g}"
                 f"_to{config.order_timeout}"
                 f"_risk{config.max_risk_pct:.4g}pct"

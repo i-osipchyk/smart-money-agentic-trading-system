@@ -787,8 +787,9 @@ def _format_target(
 
 
 def _format_candles(df: pd.DataFrame, timeframe: Timeframe, n_candles: int = 20) -> str:
+    rows_df = df.iloc[:-1].tail(n_candles)
     header = (
-        f"HTF Candles ({timeframe.value}, {len(df)} candles)\n"
+        f"HTF Candles ({timeframe.value}, last {len(rows_df)} of {len(df)} candles)\n"
         f"{'timestamp':<20} {'open':>12} {'high':>12} {'low':>12} {'close':>12} {'volume':>14}\n"
         + "-" * 86
     )
@@ -796,6 +797,6 @@ def _format_candles(df: pd.DataFrame, timeframe: Timeframe, n_candles: int = 20)
         f"{row['timestamp'].strftime('%Y-%m-%d %H:%M'):<20} "
         f"{row['open']:>12.2f} {row['high']:>12.2f} "
         f"{row['low']:>12.2f} {row['close']:>12.2f} {row['volume']:>14.4f}"
-        for _, row in df.iloc[:-1].tail(n_candles).iterrows()
+        for _, row in rows_df.iterrows()
     ]
     return header + "\n" + "\n".join(rows)

@@ -33,8 +33,15 @@ _STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
 }
 
 
-def make_strategy(key: StrategyKey, fvg_offset_pct: float) -> Strategy:
-    return _STRATEGY_REGISTRY[key](fvg_offset_pct=fvg_offset_pct)
+def make_strategy(
+    key: StrategyKey,
+    fvg_offset_pct: float,
+    block_tested_fvgs: bool = False,
+) -> Strategy:
+    return _STRATEGY_REGISTRY[key](
+        fvg_offset_pct=fvg_offset_pct,
+        block_tested_fvgs=block_tested_fvgs,
+    )
 
 
 def _ts(dt: datetime) -> str:
@@ -52,6 +59,7 @@ class RunConfig:
     fvg_offset_pct: float
     output_mode: OutputMode
     strategy: StrategyKey = "htf_fvg_ltf_bos_v2"
+    block_tested_fvgs: bool = False
     # one-time data source
     data_source: DataSourceType = "live"
     htf_csv: str | None = None

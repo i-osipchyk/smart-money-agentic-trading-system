@@ -33,7 +33,7 @@ class BacktestRunner:
         cfg = self._config
         assert cfg.bt_from is not None and cfg.bt_to is not None
 
-        strategy = make_strategy(cfg.strategy, cfg.fvg_offset_pct)
+        strategy = make_strategy(cfg.strategy, cfg.fvg_offset_pct, cfg.block_tested_fvgs)
         bt_source = BacktestDataSource(
             symbol=cfg.symbol,
             htf_timeframe=cfg.htf_tf.value,

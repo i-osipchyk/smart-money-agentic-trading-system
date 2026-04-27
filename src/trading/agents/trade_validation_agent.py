@@ -11,6 +11,22 @@ load_dotenv()
 _DECISION_FENCE = "```decision"
 
 
+def _format_levels(setup: StrategySetup) -> str:
+    entry = setup.entry
+    sl = setup.stop_loss
+    tp = setup.take_profit
+    bullish = setup.direction.value == "bullish"
+    risk = (entry - sl) if bullish else (sl - entry)
+    reward = (tp - entry) if bullish else (entry - tp)
+    rr = reward / risk if risk else 0.0
+    risk_pct = risk / entry * 100 if entry else 0.0
+    return "\n".join([
+        f"Entry (limit):  {entry:,.2f}",
+        f"Stop Loss:      {sl:,.2f}  (risk {risk:,.2f}, {risk_pct:.2f}%)",
+        f"Take Profit:    {tp:,.2f}  ({rr:.1f}:1 RR)",
+    ])
+
+
 def build_prompt(setup: StrategySetup) -> str:
     """
     Build the prompt that will be fed to the trade validation agent.
@@ -46,20 +62,33 @@ def build_prompt(setup: StrategySetup) -> str:
         "### Potential Targets\n"
         f"{setup.target}\n"
         "\n"
+        "### Computed Levels\n"
+        f"{_format_levels(setup)}\n"
+        "\n"
         f"## {setup.candles}\n"
         "\n"
         "## Task\n"
-        "Decide if the detected setup is aligned with current market structure.\n"
-        "If aligned, assess the probability of price reaching each candidate target "
-        "and select the best one (not necessarily the closest).\n"
+        "Evaluate the detected setup across these dimensions:\n"
+        "1. HTF trend alignment (higher highs / higher lows visible in candle data?)\n"
+        "2. Quality of the liquidity sweep (clean wick into FVG vs. close inside zone?)\n"
+        "3. BOS candle strength (impulsive close or weak?)\n"
+        "4. Target viability (is the TP a clean structural level or a wick extreme?)\n"
+        "5. Risk/reward acceptability given the above"
         "\n"
         "## Required Response Format\n"
         "After your analysis, end your response with **exactly** this block "
         "(replace the values, keep the keys verbatim):\n"
         "\n"
+        "Confidence rubric:\n"
+        "HIGH:   all 5 dimensions align, clean structure\n"
+        "MEDIUM: 3-4 dimensions align, minor concern present\n"
+        "LOW:    significant structural ambiguity or conflict\n"
+        "\n"
         "```decision\n"
         "should_trade: YES or NO\n"
-        "target: selected TP price as a number, omit if should_trade is NO\n"
+        "entry: entry price as a number (omit if should_trade is NO)\n"
+        "stop_loss: stop loss price as a number (omit if should_trade is NO)\n"
+        "take_profit: take profit price as a number (omit if should_trade is NO)\n"
         "confidence: HIGH, MEDIUM, or LOW\n"
         "reasoning: one-sentence summary of the decisive factor\n"
         "```"
@@ -89,7 +118,10 @@ def parse_decision(symbol: str, response: str, setup: StrategySetup) -> TradeDec
     should_trade = False
     confidence = "n/a"
     reasoning = response.strip()
-    agent_target: float | None = None
+    agent_entry: float | None = None
+    agent_sl: float | None = None
+    agent_tp: float | None = None
+    agent_target: float | None = None  # backward-compat with old "target" key
 
     if _DECISION_FENCE in response:
         try:
@@ -102,7 +134,22 @@ def parse_decision(symbol: str, response: str, setup: StrategySetup) -> TradeDec
                 val = val.strip()
                 if key == "should_trade":
                     should_trade = val.upper() == "YES"
-                elif key == "target":
+                elif key == "entry":
+                    try:
+                        agent_entry = float(val.replace(",", ""))
+                    except ValueError:
+                        pass
+                elif key == "stop_loss":
+                    try:
+                        agent_sl = float(val.replace(",", ""))
+                    except ValueError:
+                        pass
+                elif key == "take_profit":
+                    try:
+                        agent_tp = float(val.replace(",", ""))
+                    except ValueError:
+                        pass
+                elif key == "target":  # old format
                     try:
                         agent_target = float(val.replace(",", ""))
                     except ValueError:
@@ -126,19 +173,24 @@ def parse_decision(symbol: str, response: str, setup: StrategySetup) -> TradeDec
             confidence=confidence,
         )
 
-    take_profit = agent_target if agent_target is not None else setup.take_profit
-    entry = setup.entry
-    stop_loss = setup.stop_loss
-
-    # Adjust entry toward stop loss to achieve 2:1 RR when the selected target is too close.
-    # Solving (|tp - e|) / (|e - sl|) = 2  →  e = (tp + 2*sl) / 3  (valid for both directions).
-    if setup.direction.value == "bullish":
-        rr = (take_profit - entry) / (entry - stop_loss) if entry != stop_loss else 0
+    entry = agent_entry if agent_entry is not None else setup.entry
+    stop_loss = agent_sl if agent_sl is not None else setup.stop_loss
+    if agent_tp is not None:
+        take_profit = agent_tp
+    elif agent_target is not None:
+        take_profit = agent_target
     else:
-        rr = (entry - take_profit) / (stop_loss - entry) if stop_loss != entry else 0
+        take_profit = setup.take_profit
 
-    if rr < 2.0:
-        entry = (take_profit + 2 * stop_loss) / 3
+    # Only adjust entry for 2:1 RR when the agent did not provide explicit entry/sl/tp.
+    # Solving (|tp - e|) / (|e - sl|) = 2  →  e = (tp + 2*sl) / 3.
+    if agent_entry is None and agent_sl is None and agent_tp is None:
+        if setup.direction.value == "bullish":
+            rr = (take_profit - entry) / (entry - stop_loss) if entry != stop_loss else 0
+        else:
+            rr = (entry - take_profit) / (stop_loss - entry) if stop_loss != entry else 0
+        if rr < 2.0:
+            entry = (take_profit + 2 * stop_loss) / 3
 
     return TradeDecision(
         symbol=symbol,

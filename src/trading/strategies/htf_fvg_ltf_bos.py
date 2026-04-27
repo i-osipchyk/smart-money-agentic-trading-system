@@ -464,6 +464,7 @@ def format_strategy_components(
     ltf_df: pd.DataFrame,
     ltf_timeframe: Timeframe,
     fvg_offset_pct: float = 0.0,
+    block_tested_fvgs: bool = False,  # unused here; accepted for API symmetry with v2
 ) -> str:
     """Return a full human-readable breakdown of all strategy components."""
     htf_fvgs = detect_fvg(htf_df, htf_timeframe)

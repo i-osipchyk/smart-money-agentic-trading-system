@@ -38,7 +38,7 @@ class OneTimeRunner:
             out(f"[ERROR] {exc}")
             return
 
-        strategy = make_strategy(cfg.strategy, cfg.fvg_offset_pct)
+        strategy = make_strategy(cfg.strategy, cfg.fvg_offset_pct, cfg.block_tested_fvgs)
 
         if cfg.output_mode == "strategy_inspect":
             from trading.strategies.htf_fvg_ltf_bos_v2 import format_strategy_components as _fmt_v2
@@ -47,7 +47,7 @@ class OneTimeRunner:
             gui_output(
                 _fmt(
                     cfg.symbol, htf_df, cfg.htf_tf, ltf_df, cfg.ltf_tf,
-                    cfg.fvg_offset_pct,
+                    cfg.fvg_offset_pct, cfg.block_tested_fvgs,
                 )
             )
             return
