@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+
+class AgentAbortError(Exception):
+    """Raised by a get_decision callback to stop the simulation early."""
+
 from collections.abc import Callable
 from typing import Any
 
@@ -176,8 +180,13 @@ class OrderSimulator:
             if setup is None:
                 continue
 
+            setup.detected_at = current_dt
+
             # ---- decision callback ------------------------------------------
-            td: TradeDecision | None = get_decision(setup)
+            try:
+                td: TradeDecision | None = get_decision(setup)
+            except AgentAbortError:
+                break
             if td is None or not td.should_trade:
                 skipped_no_trade += 1
                 self._log(

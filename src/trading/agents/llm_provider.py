@@ -44,5 +44,8 @@ def create_llm_client(config: LLMConfig) -> BaseChatModel:
     if config.provider == "openai":
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(model=config.model)
+        # max_retries=2: retry transient 5xx / connection errors automatically.
+        # Quota errors (429 insufficient_quota) are also retried by the SDK,
+        # but they propagate after 2 attempts and get caught by AgentAbortError.
+        return ChatOpenAI(model=config.model, max_retries=2)
     raise ValueError(f"Unknown provider: {config.provider!r}")

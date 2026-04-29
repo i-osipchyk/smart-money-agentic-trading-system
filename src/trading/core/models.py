@@ -62,3 +62,4 @@ class StrategySetup(BaseModel):
     entry: float
     stop_loss: float
     take_profit: float
+    detected_at: datetime | None = None

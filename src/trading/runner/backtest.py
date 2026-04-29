@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import csv as _csv
 from collections.abc import Callable
 from pathlib import Path
 
 from trading.agents.trade_validation_agent import (
     TradeValidationAgent,
     build_prompt,
+    parse_analysis,
     parse_decision,
 )
 from trading.core.models import StrategySetup, TradeDecision, Trend
@@ -15,7 +17,7 @@ from trading.data.backtest_datasource import BacktestDataSource
 from trading.strategies.base import Strategy
 
 from .config import _FMT, RunConfig, SimulationResult, TradeRecord, make_strategy, _ts
-from .simulator import OrderSimulator
+from .simulator import AgentAbortError, OrderSimulator
 
 
 class BacktestRunner:
@@ -85,7 +87,7 @@ class BacktestRunner:
         if cfg.output_mode == "prompt":
             self._run_prompt(bt_source, strategy, gui_output, capturing_detail)
         else:
-            self._run_simulation(bt_source, strategy, gui_output, capturing_detail)
+            self._run_simulation(bt_source, strategy, gui_output, capturing_detail, out_path)
 
         out_path.write_text("".join(detail_lines), encoding="utf-8")
         gui_output(f"\nSaved → {out_path}\n")
@@ -133,18 +135,72 @@ class BacktestRunner:
         strategy: Strategy,
         gui_output: Callable[[str], None],
         detail_output: Callable[[str], None],
+        out_path: Path | None = None,
     ) -> None:
         cfg = self._config
+
+        _CSV_FIELDS = [
+            "setup_num", "open_time", "direction", "entry", "stop_loss", "take_profit",
+            "should_trade", "confidence", "reasoning",
+            "htf_trend_alignment", "liquidity_sweep_quality", "bos_strength",
+            "target_viability", "rr_acceptability", "overall_assessment",
+        ]
 
         if cfg.output_mode == "agent":
             assert cfg.llm_config is not None
             agent = TradeValidationAgent(cfg.llm_config)
+            abort_reason: list[str] = []
+            setup_num = 0
+
+            csv_path = out_path.with_suffix(".csv") if out_path is not None else None
+            csv_fh = csv_path.open("w", newline="", encoding="utf-8") if csv_path else None
+            csv_writer = (
+                _csv.DictWriter(csv_fh, fieldnames=_CSV_FIELDS)
+                if csv_fh is not None else None
+            )
+            if csv_writer is not None:
+                csv_writer.writeheader()
+                csv_fh.flush()  # type: ignore[union-attr]
 
             def get_decision(setup: StrategySetup) -> TradeDecision:
+                nonlocal setup_num
+                setup_num += 1
+                dt_str = (
+                    setup.detected_at.strftime("%Y-%m-%d %H:%M")
+                    if setup.detected_at else "—"
+                )
+                gui_output(
+                    f"Setup #{setup_num}  {dt_str}  {setup.direction.value.upper()}"
+                    f"  entry={_FMT.format(setup.entry)}"
+                    f"  sl={_FMT.format(setup.stop_loss)}"
+                    f"  tp={_FMT.format(setup.take_profit)}\n"
+                )
                 detail_output("Querying agent…\n")
-                response = agent.run(build_prompt(setup))
+                try:
+                    response = agent.run(build_prompt(setup))
+                except Exception as exc:
+                    exc_str = str(exc)
+                    abort_reason.append(exc_str)
+                    if csv_fh is not None:
+                        csv_fh.close()
+                    raise AgentAbortError(exc_str) from exc
                 detail_output(response + "\n")
-                return parse_decision(cfg.symbol, response, setup)
+                td = parse_decision(cfg.symbol, response, setup)
+                if csv_writer is not None:
+                    csv_writer.writerow({
+                        "setup_num": setup_num,
+                        "open_time": dt_str,
+                        "direction": setup.direction.value.upper(),
+                        "entry": setup.entry,
+                        "stop_loss": setup.stop_loss,
+                        "take_profit": setup.take_profit,
+                        "should_trade": "YES" if td.should_trade else "NO",
+                        "confidence": td.confidence,
+                        "reasoning": td.reasoning,
+                        **parse_analysis(response),
+                    })
+                    csv_fh.flush()  # type: ignore[union-attr]
+                return td
 
             metrics_title = "AGENT TEST METRICS"
 
@@ -173,6 +229,16 @@ class BacktestRunner:
             detail_log=detail_output,
         )
         result = simulator.run(bt_source, get_decision)
+
+        if cfg.output_mode == "agent":
+            if csv_fh is not None:
+                csv_fh.close()
+                if csv_path is not None:
+                    gui_output(f"CSV   → {csv_path}\n")
+            if abort_reason:
+                msg = f"\nAgent quota exceeded — backtest stopped early.\n{abort_reason[0]}\n"
+                gui_output(msg)
+                detail_output(msg)
 
         # Per-trade summary rows → GUI only
         gui_output("\n")

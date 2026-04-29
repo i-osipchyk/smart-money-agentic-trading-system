@@ -91,6 +91,12 @@ def build_prompt(setup: StrategySetup) -> str:
         "take_profit: take profit price as a number (omit if should_trade is NO)\n"
         "confidence: HIGH, MEDIUM, or LOW\n"
         "reasoning: one-sentence summary of the decisive factor\n"
+        "htf_trend: ALIGNED, PARTIAL, or AGAINST\n"
+        "liquidity_sweep: CLEAN or WEAK\n"
+        "bos_strength: IMPULSIVE or WEAK\n"
+        "target_viability: CLEAN or POOR\n"
+        "rr_acceptability: ACCEPTABLE or POOR\n"
+        "overall_assessment: one-sentence overall assessment\n"
         "```"
     )
 
@@ -202,6 +208,49 @@ def parse_decision(symbol: str, response: str, setup: StrategySetup) -> TradeDec
         reasoning=reasoning,
         confidence=confidence,
     )
+
+
+def parse_analysis(response: str) -> dict[str, str]:
+    """
+    Extract the per-dimension scores from the agent's decision block.
+
+    Returns a dict with keys: htf_trend_alignment, liquidity_sweep_quality,
+    bos_strength, target_viability, rr_acceptability, overall_assessment.
+    Values are empty strings when the block or a field is absent.
+    """
+    result: dict[str, str] = {
+        "htf_trend_alignment": "",
+        "liquidity_sweep_quality": "",
+        "bos_strength": "",
+        "target_viability": "",
+        "rr_acceptability": "",
+        "overall_assessment": "",
+    }
+    if _DECISION_FENCE not in response:
+        return result
+    try:
+        block_start = response.index(_DECISION_FENCE) + len(_DECISION_FENCE)
+        block_end = response.index("```", block_start)
+        block = response[block_start:block_end].strip()
+        for line in block.splitlines():
+            key, _, val = line.partition(":")
+            key = key.strip().lower()
+            val = val.strip()
+            if key == "htf_trend":
+                result["htf_trend_alignment"] = val
+            elif key == "liquidity_sweep":
+                result["liquidity_sweep_quality"] = val
+            elif key == "bos_strength":
+                result["bos_strength"] = val
+            elif key == "target_viability":
+                result["target_viability"] = val
+            elif key == "rr_acceptability":
+                result["rr_acceptability"] = val
+            elif key == "overall_assessment":
+                result["overall_assessment"] = val
+    except (ValueError, IndexError):
+        pass
+    return result
 
 
 class TradeValidationAgent:
