@@ -8,7 +8,7 @@ from tkinter import ttk
 
 from trading.agents.llm_provider import PROVIDERS, LLMConfig
 from trading.core.models import Timeframe
-from trading.runner import BacktestRunner, OneTimeRunner, RunConfig, StrategyKey
+from trading.runner import BacktestRunner, OneTimeRunner, RunConfig
 
 _TF_VALUES = ["5m", "15m", "1h", "4h", "1d"]
 _TF_SECONDS: dict[str, int] = {
@@ -36,7 +36,7 @@ class ValidationGUI:
 
         self._gui_queue: queue.Queue[str | None] = queue.Queue()
 
-        # ---- shared vars (both tabs) ----
+        # ---- shared vars ----
         self._source_var = tk.StringVar(value="csv")
         self._htf_csv_var = tk.StringVar()
         self._ltf_csv_var = tk.StringVar()
@@ -46,34 +46,26 @@ class ValidationGUI:
         self._htf_limit_var = tk.StringVar(value="72")
         self._ltf_limit_var = tk.StringVar(value="24")
         self._symbol_var = tk.StringVar(value="BTC/USDT:USDT")
-        self._offset_var = tk.StringVar(value="0.05")  # percent
+        self._offset_var = tk.StringVar(value="0.05")
         self._block_tested_var = tk.BooleanVar(value=False)
-
-        # strategy selector — shared
         self._strategy_var = tk.StringVar(value="htf_fvg_ltf_bos_v2")
-
-        # output mode — shared, drives both tabs
-        self._output_mode_var = tk.StringVar(value="prompt")
-
-        # simulation options — shared
+        self._output_mode_var = tk.StringVar(value="agent")
         self._order_timeout_var = tk.StringVar(value="10")
         self._max_risk_var = tk.StringVar(value="1.0")
         self._rr_ratio_var = tk.StringVar(value="2.0")
 
-        # LLM provider/model — shared
         _default_provider = next(iter(PROVIDERS))
         self._provider_var = tk.StringVar(value=_default_provider)
         self._model_var = tk.StringVar(value=PROVIDERS[_default_provider][0])
         self._model_combos: list[ttk.Combobox] = []
 
-        # backtest date range
         now = datetime.now(UTC)
         self._bt_from_var = tk.StringVar(
             value=(now - timedelta(days=30)).strftime("%Y-%m-%d %H:%M")
         )
         self._bt_to_var = tk.StringVar(value=now.strftime("%Y-%m-%d %H:%M"))
 
-        # typed widget refs set during layout
+        # typed widget refs
         self._csv_frame: ttk.Frame
         self._until_frame: ttk.Frame
         self._htf_csv_combo: ttk.Combobox
@@ -82,7 +74,10 @@ class ValidationGUI:
         self._bt_output_text: tk.Text
         self._submit_btn: ttk.Button
         self._bt_submit_btn: ttk.Button
-        self._bl_frames: list[ttk.LabelFrame] = []  # one per tab
+        # model sections per tab — shown only in agent mode
+        self._model_frames: list[ttk.LabelFrame] = []
+        # params frames used as pack anchors for model frame insertion
+        self._params_anchor_frames: list[ttk.LabelFrame] = []
 
         self._build_layout()
         self._populate_csv_dropdowns()
@@ -142,156 +137,42 @@ class ValidationGUI:
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         return text
 
-    def _build_shared_controls(
-        self, parent: ttk.Frame, *, extra_modes: bool = False
+    # --------------------------------------------------------- section builders
+
+    def _build_output_mode_section(
+        self, parent: ttk.Frame, *, one_time: bool = False
     ) -> None:
-        """Build shared controls: timeframes, symbol, FVG offset, model, output mode."""
-        # --- Timeframes ---
-        tf_frame = ttk.LabelFrame(parent, text="Timeframes", padding=8)
-        tf_frame.pack(fill=tk.X, pady=(0, 8))
+        frame = ttk.LabelFrame(parent, text="Output Mode", padding=8)
+        frame.pack(fill=tk.X, pady=(0, 8))
+        modes: list[tuple[str, str]] = []
+        if one_time:
+            modes += [
+                ("Strategy Inspect", "strategy_inspect"),
+                ("Prompt Validation", "prompt"),
+            ]
+        modes += [("Agent Test", "agent"), ("Baseline Metrics", "baseline")]
+        for label, value in modes:
+            ttk.Radiobutton(
+                frame, text=label, variable=self._output_mode_var, value=value,
+            ).pack(anchor=tk.W)
 
-        tf_inner = ttk.Frame(tf_frame)
-        tf_inner.pack(fill=tk.X)
+    def _build_symbol_section(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="Symbol", padding=8)
+        frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Entry(frame, textvariable=self._symbol_var, width=18).pack(anchor=tk.W)
 
-        ttk.Label(tf_inner, text="HTF").grid(row=0, column=0, sticky=tk.W, padx=(0, 6))
+    def _build_strategy_section(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="Strategy", padding=8)
+        frame.pack(fill=tk.X, pady=(0, 8))
         ttk.Combobox(
-            tf_inner, textvariable=self._htf_tf_var, values=_TF_VALUES,
-            state="readonly", width=7,
-        ).grid(row=0, column=1, sticky=tk.W, pady=(0, 4))
-        ttk.Spinbox(
-            tf_inner, textvariable=self._htf_limit_var, from_=10, to=500, width=5,
-        ).grid(row=0, column=2, sticky=tk.W, padx=(8, 4), pady=(0, 4))
-        ttk.Label(tf_inner, text="candles").grid(
-            row=0, column=3, sticky=tk.W, pady=(0, 4)
-        )
-
-        ttk.Label(tf_inner, text="LTF").grid(row=1, column=0, sticky=tk.W, padx=(0, 6))
-        ttk.Combobox(
-            tf_inner, textvariable=self._ltf_tf_var, values=_TF_VALUES,
-            state="readonly", width=7,
-        ).grid(row=1, column=1, sticky=tk.W)
-        ttk.Spinbox(
-            tf_inner, textvariable=self._ltf_limit_var, from_=10, to=500, width=5,
-        ).grid(row=1, column=2, sticky=tk.W, padx=(8, 4))
-        ttk.Label(tf_inner, text="candles").grid(row=1, column=3, sticky=tk.W)
-
-        # --- Symbol ---
-        sym_frame = ttk.LabelFrame(parent, text="Symbol", padding=8)
-        sym_frame.pack(fill=tk.X, pady=(0, 8))
-        ttk.Entry(sym_frame, textvariable=self._symbol_var, width=18).pack(anchor=tk.W)
-
-        # --- Strategy ---
-        strat_frame = ttk.LabelFrame(parent, text="Strategy", padding=8)
-        strat_frame.pack(fill=tk.X, pady=(0, 8))
-        ttk.Combobox(
-            strat_frame,
+            frame,
             textvariable=self._strategy_var,
             values=["htf_fvg_ltf_bos", "htf_fvg_ltf_bos_v2"],
             state="readonly",
             width=22,
         ).pack(anchor=tk.W)
 
-        # --- Strategy Parameters ---
-        opt_frame = ttk.LabelFrame(parent, text="Strategy Parameters", padding=8)
-        opt_frame.pack(fill=tk.X, pady=(0, 8))
-        opt_inner = ttk.Frame(opt_frame)
-        opt_inner.pack(fill=tk.X)
-        ttk.Label(opt_inner, text="FVG offset (%)").grid(
-            row=0, column=0, sticky=tk.W, padx=(0, 6)
-        )
-        ttk.Spinbox(
-            opt_inner, textvariable=self._offset_var,
-            from_=0.0, to=100.0, increment=0.05, format="%.2f", width=7,
-        ).grid(row=0, column=1, sticky=tk.W)
-        ttk.Checkbutton(
-            opt_inner, text="Block tested FVGs on path",
-            variable=self._block_tested_var,
-        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
-
-        # --- Model ---
-        model_frame = ttk.LabelFrame(parent, text="Model", padding=8)
-        model_frame.pack(fill=tk.X, pady=(0, 8))
-        model_inner = ttk.Frame(model_frame)
-        model_inner.pack(fill=tk.X)
-
-        ttk.Label(model_inner, text="Provider").grid(
-            row=0, column=0, sticky=tk.W, padx=(0, 6), pady=(0, 4)
-        )
-        ttk.Combobox(
-            model_inner, textvariable=self._provider_var,
-            values=list(PROVIDERS), state="readonly", width=12,
-        ).grid(row=0, column=1, sticky=tk.W, pady=(0, 4))
-
-        ttk.Label(model_inner, text="Model").grid(
-            row=1, column=0, sticky=tk.W, padx=(0, 6)
-        )
-        model_combo = ttk.Combobox(
-            model_inner, textvariable=self._model_var,
-            values=PROVIDERS.get(self._provider_var.get(), []),
-            state="readonly", width=28,
-        )
-        model_combo.grid(row=1, column=1, sticky=tk.W)
-        self._model_combos.append(model_combo)
-
-        # --- Output Mode ---
-        mode_frame = ttk.LabelFrame(parent, text="Output Mode", padding=8)
-        mode_frame.pack(fill=tk.X, pady=(0, 8))
-        modes = [
-            ("Prompt Validation", "prompt"),
-            ("Agent Test", "agent"),
-            ("Baseline Metrics", "baseline"),
-        ]
-        if extra_modes:
-            modes.append(("Strategy Inspect", "strategy_inspect"))
-        for label, value in modes:
-            ttk.Radiobutton(
-                mode_frame, text=label,
-                variable=self._output_mode_var, value=value,
-            ).pack(anchor=tk.W)
-
-        # --- Baseline Options (shown only when output_mode == "baseline") ---
-        bl_frame = ttk.LabelFrame(parent, text="Baseline Options", padding=8)
-        bl_inner = ttk.Frame(bl_frame)
-        bl_inner.pack(fill=tk.X)
-
-        ttk.Label(bl_inner, text="Order timeout (LTF candles)").grid(
-            row=0, column=0, sticky=tk.W, padx=(0, 6)
-        )
-        ttk.Spinbox(
-            bl_inner, textvariable=self._order_timeout_var, from_=1, to=500, width=5,
-        ).grid(row=0, column=1, sticky=tk.W)
-
-        ttk.Label(bl_inner, text="Max risk (% of entry)").grid(
-            row=1, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
-        )
-        ttk.Spinbox(
-            bl_inner, textvariable=self._max_risk_var,
-            from_=0.1, to=100.0, increment=0.1, format="%.1f", width=5,
-        ).grid(row=1, column=1, sticky=tk.W, pady=(4, 0))
-
-        ttk.Label(bl_inner, text="Take profit (RR ratio)").grid(
-            row=2, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
-        )
-        ttk.Spinbox(
-            bl_inner, textvariable=self._rr_ratio_var,
-            from_=0.5, to=20.0, increment=0.5, format="%.1f", width=5,
-        ).grid(row=2, column=1, sticky=tk.W, pady=(4, 0))
-
-        self._bl_frames.append(bl_frame)
-
-        # Apply current visibility immediately
-        if self._output_mode_var.get() == "baseline":
-            bl_frame.pack(fill=tk.X, pady=(0, 8))
-
-    # --------------------------------------------------------- validation tab
-
-    def _build_validation_tab(self, parent: ttk.Frame) -> None:
-        left, right = self._make_paned(parent)
-        self._build_validation_controls(left)
-        self._val_output_text = self._build_output_panel(right, "Entry Analysis")
-
-    def _build_validation_controls(self, parent: ttk.Frame) -> None:
-        # --- Data Source ---
+    def _build_data_source_section(self, parent: ttk.Frame) -> None:
         src_frame = ttk.LabelFrame(parent, text="Data Source", padding=8)
         src_frame.pack(fill=tk.X, pady=(0, 8))
         for label, value in [
@@ -301,17 +182,17 @@ class ValidationGUI:
                 src_frame, text=label, variable=self._source_var, value=value,
             ).pack(anchor=tk.W)
 
-        # --- CSV file pickers (shown for "csv") ---
-        self._csv_frame = ttk.Frame(parent)
-        self._csv_frame.pack(fill=tk.X, pady=(0, 8))
+        # Container for conditional file/date options — collapses when empty
+        options_container = ttk.Frame(parent)
+        options_container.pack(fill=tk.X)
 
+        self._csv_frame = ttk.Frame(options_container)
         ttk.Label(self._csv_frame, text="HTF CSV File").pack(anchor=tk.W)
         self._htf_csv_combo = ttk.Combobox(
             self._csv_frame, textvariable=self._htf_csv_var,
             state="readonly", width=32,
         )
         self._htf_csv_combo.pack(fill=tk.X, pady=(0, 6))
-
         ttk.Label(self._csv_frame, text="LTF CSV File").pack(anchor=tk.W)
         self._ltf_csv_combo = ttk.Combobox(
             self._csv_frame, textvariable=self._ltf_csv_var,
@@ -319,8 +200,7 @@ class ValidationGUI:
         )
         self._ltf_csv_combo.pack(fill=tk.X)
 
-        # --- To datetime (shown for "past") ---
-        self._until_frame = ttk.Frame(parent)
+        self._until_frame = ttk.Frame(options_container)
         ttk.Label(
             self._until_frame, text="To (UTC)  —  YYYY-MM-DD HH:MM"
         ).pack(anchor=tk.W)
@@ -328,14 +208,145 @@ class ValidationGUI:
             anchor=tk.W, pady=(2, 0)
         )
 
-        self._build_shared_controls(parent, extra_modes=True)
+        # Apply initial visibility
+        self._on_source_change()
+
+    def _build_timeframes_section(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="Timeframes", padding=8)
+        frame.pack(fill=tk.X, pady=(8, 8))
+        inner = ttk.Frame(frame)
+        inner.pack(fill=tk.X)
+
+        ttk.Label(inner, text="HTF").grid(row=0, column=0, sticky=tk.W, padx=(0, 6))
+        ttk.Combobox(
+            inner, textvariable=self._htf_tf_var, values=_TF_VALUES,
+            state="readonly", width=7,
+        ).grid(row=0, column=1, sticky=tk.W, pady=(0, 4))
+        ttk.Spinbox(
+            inner, textvariable=self._htf_limit_var, from_=10, to=500, width=5,
+        ).grid(row=0, column=2, sticky=tk.W, padx=(8, 4), pady=(0, 4))
+        ttk.Label(inner, text="candles").grid(
+            row=0, column=3, sticky=tk.W, pady=(0, 4)
+        )
+
+        ttk.Label(inner, text="LTF").grid(row=1, column=0, sticky=tk.W, padx=(0, 6))
+        ttk.Combobox(
+            inner, textvariable=self._ltf_tf_var, values=_TF_VALUES,
+            state="readonly", width=7,
+        ).grid(row=1, column=1, sticky=tk.W)
+        ttk.Spinbox(
+            inner, textvariable=self._ltf_limit_var, from_=10, to=500, width=5,
+        ).grid(row=1, column=2, sticky=tk.W, padx=(8, 4))
+        ttk.Label(inner, text="candles").grid(row=1, column=3, sticky=tk.W)
+
+    def _build_model_section(self, parent: ttk.Frame) -> None:
+        """Create Model LabelFrame. Packed/unpacked by _on_mode_change."""
+        model_frame = ttk.LabelFrame(parent, text="Model", padding=8)
+        self._model_frames.append(model_frame)
+
+        inner = ttk.Frame(model_frame)
+        inner.pack(fill=tk.X)
+
+        ttk.Label(inner, text="Provider").grid(
+            row=0, column=0, sticky=tk.W, padx=(0, 6), pady=(0, 4)
+        )
+        ttk.Combobox(
+            inner, textvariable=self._provider_var,
+            values=list(PROVIDERS), state="readonly", width=12,
+        ).grid(row=0, column=1, sticky=tk.W, pady=(0, 4))
+
+        ttk.Label(inner, text="Model").grid(
+            row=1, column=0, sticky=tk.W, padx=(0, 6)
+        )
+        model_combo = ttk.Combobox(
+            inner, textvariable=self._model_var,
+            values=PROVIDERS.get(self._provider_var.get(), []),
+            state="readonly", width=28,
+        )
+        model_combo.grid(row=1, column=1, sticky=tk.W)
+        self._model_combos.append(model_combo)
+
+    def _build_strategy_params_section(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="Strategy Parameters", padding=8)
+        frame.pack(fill=tk.X, pady=(0, 8))
+        self._params_anchor_frames.append(frame)
+
+        inner = ttk.Frame(frame)
+        inner.pack(fill=tk.X)
+
+        ttk.Label(inner, text="FVG offset (%)").grid(
+            row=0, column=0, sticky=tk.W, padx=(0, 6)
+        )
+        ttk.Spinbox(
+            inner, textvariable=self._offset_var,
+            from_=0.0, to=100.0, increment=0.05, format="%.2f", width=7,
+        ).grid(row=0, column=1, sticky=tk.W)
+
+        ttk.Checkbutton(
+            inner, text="Block tested FVGs on path",
+            variable=self._block_tested_var,
+        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+
+        ttk.Label(inner, text="Order timeout (LTF candles)").grid(
+            row=2, column=0, sticky=tk.W, padx=(0, 6), pady=(6, 0)
+        )
+        ttk.Spinbox(
+            inner, textvariable=self._order_timeout_var, from_=1, to=500, width=5,
+        ).grid(row=2, column=1, sticky=tk.W, pady=(6, 0))
+
+        ttk.Label(inner, text="Max risk (% of entry)").grid(
+            row=3, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
+        )
+        ttk.Spinbox(
+            inner, textvariable=self._max_risk_var,
+            from_=0.1, to=100.0, increment=0.1, format="%.1f", width=5,
+        ).grid(row=3, column=1, sticky=tk.W, pady=(4, 0))
+
+        ttk.Label(inner, text="Take profit (RR ratio)").grid(
+            row=4, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
+        )
+        ttk.Spinbox(
+            inner, textvariable=self._rr_ratio_var,
+            from_=0.5, to=20.0, increment=0.5, format="%.1f", width=5,
+        ).grid(row=4, column=1, sticky=tk.W, pady=(4, 0))
+
+    def _build_date_range_section(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="Date Range (UTC)", padding=8)
+        frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(frame, text="From  YYYY-MM-DD HH:MM").pack(anchor=tk.W)
+        ttk.Entry(frame, textvariable=self._bt_from_var, width=22).pack(
+            anchor=tk.W, pady=(2, 8)
+        )
+        ttk.Label(frame, text="To  YYYY-MM-DD HH:MM").pack(anchor=tk.W)
+        ttk.Entry(frame, textvariable=self._bt_to_var, width=22).pack(
+            anchor=tk.W, pady=(2, 0)
+        )
+
+    # ----------------------------------------------------- tab builders
+
+    def _build_validation_tab(self, parent: ttk.Frame) -> None:
+        left, right = self._make_paned(parent)
+        self._build_validation_controls(left)
+        self._val_output_text = self._build_output_panel(right, "Entry Analysis")
+
+    def _build_validation_controls(self, parent: ttk.Frame) -> None:
+        self._build_output_mode_section(parent, one_time=True)
+        self._build_symbol_section(parent)
+        self._build_strategy_section(parent)
+        self._build_data_source_section(parent)
+        self._build_timeframes_section(parent)
+        self._build_model_section(parent)
+        self._build_strategy_params_section(parent)
 
         self._submit_btn = ttk.Button(
             parent, text="Detect Entry", command=self._on_submit
         )
         self._submit_btn.pack(fill=tk.X)
 
-    # ----------------------------------------------------------- backtest tab
+        if self._output_mode_var.get() == "agent":
+            self._model_frames[-1].pack(
+                fill=tk.X, pady=(0, 8), before=self._params_anchor_frames[-1]
+            )
 
     def _build_backtest_tab(self, parent: ttk.Frame) -> None:
         left, right = self._make_paned(parent)
@@ -343,27 +354,25 @@ class ValidationGUI:
         self._bt_output_text = self._build_output_panel(right, "Backtest Output")
 
     def _build_backtest_controls(self, parent: ttk.Frame) -> None:
-        self._build_shared_controls(parent)
-
-        # --- Date Range ---
-        range_frame = ttk.LabelFrame(parent, text="Date Range (UTC)", padding=8)
-        range_frame.pack(fill=tk.X, pady=(0, 12))
-
-        ttk.Label(range_frame, text="From  YYYY-MM-DD HH:MM").pack(anchor=tk.W)
-        ttk.Entry(range_frame, textvariable=self._bt_from_var, width=22).pack(
-            anchor=tk.W, pady=(2, 8)
-        )
-        ttk.Label(range_frame, text="To  YYYY-MM-DD HH:MM").pack(anchor=tk.W)
-        ttk.Entry(range_frame, textvariable=self._bt_to_var, width=22).pack(
-            anchor=tk.W, pady=(2, 0)
-        )
+        self._build_output_mode_section(parent, one_time=False)
+        self._build_symbol_section(parent)
+        self._build_strategy_section(parent)
+        self._build_date_range_section(parent)
+        self._build_timeframes_section(parent)
+        self._build_model_section(parent)
+        self._build_strategy_params_section(parent)
 
         self._bt_submit_btn = ttk.Button(
             parent, text="Run Backtest", command=self._on_run_backtest
         )
         self._bt_submit_btn.pack(fill=tk.X)
 
-    # ----------------------------------------------------------- dynamic state
+        if self._output_mode_var.get() == "agent":
+            self._model_frames[-1].pack(
+                fill=tk.X, pady=(0, 8), before=self._params_anchor_frames[-1]
+            )
+
+    # --------------------------------------------------------- dynamic state
 
     def _on_provider_change(self) -> None:
         provider = self._provider_var.get()
@@ -374,24 +383,25 @@ class ValidationGUI:
 
     def _on_source_change(self) -> None:
         source = self._source_var.get()
+        self._csv_frame.pack_forget()
+        self._until_frame.pack_forget()
         if source == "csv":
-            self._until_frame.pack_forget()
-            self._csv_frame.pack(fill=tk.X, pady=(0, 8), before=self._until_frame)
+            self._csv_frame.pack(fill=tk.X, pady=(0, 8))
         elif source == "past":
-            self._csv_frame.pack_forget()
             self._until_frame.pack(fill=tk.X, pady=(0, 8))
             self._refresh_until_default()
-        else:
-            self._csv_frame.pack_forget()
-            self._until_frame.pack_forget()
 
     def _on_mode_change(self) -> None:
-        show = self._output_mode_var.get() == "baseline"
-        for frame in self._bl_frames:
-            if show:
-                frame.pack(fill=tk.X, pady=(0, 8))
+        mode = self._output_mode_var.get()
+        for model_frame, params_frame in zip(
+            self._model_frames, self._params_anchor_frames
+        ):
+            if mode == "agent":
+                model_frame.pack(
+                    fill=tk.X, pady=(0, 8), before=params_frame
+                )
             else:
-                frame.pack_forget()
+                model_frame.pack_forget()
 
     def _populate_csv_dropdowns(self) -> None:
         csv_files = (
@@ -415,7 +425,6 @@ class ValidationGUI:
     # ------------------------------------------------ config builders
 
     def _build_run_config(self) -> RunConfig | None:
-        """Parse shared tkinter vars into a RunConfig; return None on error."""
         try:
             htf_limit = int(self._htf_limit_var.get())
             ltf_limit = int(self._ltf_limit_var.get())
@@ -436,7 +445,7 @@ class ValidationGUI:
             max_risk_pct = float(self._max_risk_var.get())
             rr_ratio = float(self._rr_ratio_var.get())
         except ValueError as exc:
-            self._gui_queue.put(f"[ERROR] Invalid baseline option: {exc}\n")
+            self._gui_queue.put(f"[ERROR] Invalid strategy parameter: {exc}\n")
             self._gui_queue.put(None)
             return None
 
@@ -485,14 +494,6 @@ class ValidationGUI:
         if config is None:
             return None
 
-        if config.output_mode == "strategy_inspect":
-            self._gui_queue.put(
-                "[ERROR] Strategy Inspect is only available"
-                " in One-Time Validation mode.\n"
-            )
-            self._gui_queue.put(None)
-            return None
-
         try:
             config.bt_from = datetime.strptime(
                 self._bt_from_var.get().strip(), "%Y-%m-%d %H:%M"
@@ -519,17 +520,14 @@ class ValidationGUI:
         from_str = config.bt_from.strftime("%Y%m%d-%H%M")
         to_str = config.bt_to.strftime("%Y%m%d-%H%M")
 
-        # Optional model folder — only for agent mode
         model_part: tuple[str, ...] = ()
         if config.output_mode == "agent" and config.llm_config is not None:
             model_part = (
                 f"{config.llm_config.provider}_{config.llm_config.model}",
             )
 
-        # Symbol: sanitise filesystem-unsafe chars
         symbol_folder = config.symbol.replace("/", "-").replace(":", "-")
 
-        # Strategy params relevant to each mode
         offset_pct = config.fvg_offset_pct * 100
         btested = "_btested" if config.block_tested_fvgs else ""
         if config.output_mode == "prompt":
@@ -598,7 +596,7 @@ class ValidationGUI:
         try:
             BacktestRunner(config).run(
                 gui_output=lambda s: self._gui_queue.put(s),
-                detail_output=lambda _: None,  # captured inside BacktestRunner
+                detail_output=lambda _: None,
                 out_path=out_path,
             )
         except Exception as exc:

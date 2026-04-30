@@ -16,7 +16,7 @@ from trading.core.models import Trend
 from trading.data.binance_datasource import BinanceDataSource
 from trading.data.csv_datasource import CSVDataSource
 
-from .config import _FMT, _TF_SECONDS, RunConfig, make_strategy, _ts
+from .config import _FMT, _TF_SECONDS, RunConfig, _ts, make_strategy
 
 
 class OneTimeRunner:
@@ -38,11 +38,17 @@ class OneTimeRunner:
             out(f"[ERROR] {exc}")
             return
 
-        strategy = make_strategy(cfg.strategy, cfg.fvg_offset_pct, cfg.block_tested_fvgs)
+        strategy = make_strategy(
+            cfg.strategy, cfg.fvg_offset_pct, cfg.block_tested_fvgs
+        )
 
         if cfg.output_mode == "strategy_inspect":
-            from trading.strategies.htf_fvg_ltf_bos_v2 import format_strategy_components as _fmt_v2
-            from trading.strategies.htf_fvg_ltf_bos import format_strategy_components as _fmt_v1
+            from trading.strategies.htf_fvg_ltf_bos import (
+                format_strategy_components as _fmt_v1,
+            )
+            from trading.strategies.htf_fvg_ltf_bos_v2 import (
+                format_strategy_components as _fmt_v2,
+            )
             _fmt = _fmt_v2 if cfg.strategy == "htf_fvg_ltf_bos_v2" else _fmt_v1
             gui_output(
                 _fmt(

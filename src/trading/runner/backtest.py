@@ -12,11 +12,11 @@ from trading.agents.trade_validation_agent import (
     parse_analysis,
     parse_decision,
 )
-from trading.core.models import StrategySetup, TradeDecision, Trend
+from trading.core.models import StrategySetup, TradeDecision
 from trading.data.backtest_datasource import BacktestDataSource
 from trading.strategies.base import Strategy
 
-from .config import _FMT, RunConfig, SimulationResult, TradeRecord, make_strategy, _ts
+from .config import _FMT, RunConfig, SimulationResult, TradeRecord, _ts, make_strategy
 from .simulator import AgentAbortError, OrderSimulator
 
 
@@ -35,7 +35,9 @@ class BacktestRunner:
         cfg = self._config
         assert cfg.bt_from is not None and cfg.bt_to is not None
 
-        strategy = make_strategy(cfg.strategy, cfg.fvg_offset_pct, cfg.block_tested_fvgs)
+        strategy = make_strategy(
+            cfg.strategy, cfg.fvg_offset_pct, cfg.block_tested_fvgs
+        )
         bt_source = BacktestDataSource(
             symbol=cfg.symbol,
             htf_timeframe=cfg.htf_tf.value,
@@ -87,7 +89,9 @@ class BacktestRunner:
         if cfg.output_mode == "prompt":
             self._run_prompt(bt_source, strategy, gui_output, capturing_detail)
         else:
-            self._run_simulation(bt_source, strategy, gui_output, capturing_detail, out_path)
+            self._run_simulation(
+                bt_source, strategy, gui_output, capturing_detail, out_path
+            )
 
         out_path.write_text("".join(detail_lines), encoding="utf-8")
         gui_output(f"\nSaved → {out_path}\n")
@@ -153,7 +157,9 @@ class BacktestRunner:
             setup_num = 0
 
             csv_path = out_path.with_suffix(".csv") if out_path is not None else None
-            csv_fh = csv_path.open("w", newline="", encoding="utf-8") if csv_path else None
+            csv_fh = (
+                csv_path.open("w", newline="", encoding="utf-8") if csv_path else None
+            )
             csv_writer = (
                 _csv.DictWriter(csv_fh, fieldnames=_CSV_FIELDS)
                 if csv_fh is not None else None
@@ -236,7 +242,10 @@ class BacktestRunner:
                 if csv_path is not None:
                     gui_output(f"CSV   → {csv_path}\n")
             if abort_reason:
-                msg = f"\nAgent quota exceeded — backtest stopped early.\n{abort_reason[0]}\n"
+                msg = (
+                    f"\nAgent quota exceeded — backtest stopped early."
+                    f"\n{abort_reason[0]}\n"
+                )
                 gui_output(msg)
                 detail_output(msg)
 
