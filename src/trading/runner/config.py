@@ -14,6 +14,7 @@ from trading.strategies.htf_fvg_ltf_bos_v2 import HtfFvgLtfBosV2
 
 OutputMode = Literal["prompt", "agent", "baseline", "strategy_inspect"]
 DataSourceType = Literal["csv", "past", "live"]
+DataProviderType = Literal["binance", "ctrader"]
 StrategyKey = Literal["htf_fvg_ltf_bos", "htf_fvg_ltf_bos_v2"]
 
 _TF_SECONDS: dict[str, int] = {
@@ -65,9 +66,10 @@ class RunConfig:
     htf_csv: str | None = None
     ltf_csv: str | None = None
     until: datetime | None = None
-    # backtest range
+    # backtest range + provider
     bt_from: datetime | None = None
     bt_to: datetime | None = None
+    data_provider: DataProviderType = "binance"
     # agent
     llm_config: LLMConfig | None = None
     # simulation (agent + baseline)

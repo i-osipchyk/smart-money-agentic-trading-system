@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -15,8 +16,18 @@ from trading.agents.trade_validation_agent import (
 from trading.core.models import Trend
 from trading.data.binance_datasource import BinanceDataSource
 from trading.data.csv_datasource import CSVDataSource
+from trading.data.ctrader_datasource import CTraderDataSource
 
 from .config import _FMT, _TF_SECONDS, RunConfig, _ts, make_strategy
+
+
+def _make_ctrader_source() -> CTraderDataSource:
+    return CTraderDataSource(
+        client_id=os.environ["CTRADER_CLIENT_ID"],
+        client_secret=os.environ["CTRADER_CLIENT_SECRET"],
+        access_token=os.environ["CTRADER_ACCESS_TOKEN"],
+        account_id=int(os.environ["CTRADER_ACCOUNT_ID"]),
+    )
 
 
 class OneTimeRunner:
@@ -169,13 +180,23 @@ class OneTimeRunner:
 
         if cfg.data_source == "past":
             since = last_ltf_ts + timedelta(seconds=ltf_step)
-            binance = BinanceDataSource()
-            df = binance.get_ohlcv(
-                symbol=cfg.symbol,
-                timeframe=cfg.ltf_tf.value,
-                limit=count,
-                since=since,
-            )
+            if cfg.data_provider == "ctrader":
+                ct = _make_ctrader_source()
+                df = ct.get_ohlcv(
+                    symbol=cfg.symbol,
+                    timeframe=cfg.ltf_tf.value,
+                    limit=count,
+                    until=since + timedelta(seconds=ltf_step * count),
+                )
+                df = df[df["timestamp"] > last_ltf_ts].head(count).reset_index(drop=True)
+            else:
+                binance = BinanceDataSource()
+                df = binance.get_ohlcv(
+                    symbol=cfg.symbol,
+                    timeframe=cfg.ltf_tf.value,
+                    limit=count,
+                    since=since,
+                )
             return df if not df.empty else None
 
         return None  # live — future hasn't happened yet
@@ -262,6 +283,20 @@ class OneTimeRunner:
                 timeframe=cfg.ltf_tf.value,
                 limit=cfg.ltf_limit,
                 filename_override=cfg.ltf_csv,
+            )
+        elif cfg.data_provider == "ctrader":
+            ct = _make_ctrader_source()
+            htf_df = ct.get_ohlcv(
+                symbol=cfg.symbol,
+                timeframe=cfg.htf_tf.value,
+                limit=cfg.htf_limit,
+                until=cfg.until,
+            )
+            ltf_df = ct.get_ohlcv(
+                symbol=cfg.symbol,
+                timeframe=cfg.ltf_tf.value,
+                limit=cfg.ltf_limit,
+                until=cfg.until,
             )
         else:
             binance = BinanceDataSource()

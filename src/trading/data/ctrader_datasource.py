@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 import ssl
 import struct
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
 import pandas as pd
-
 from ctrader_open_api.messages.OpenApiCommonMessages_pb2 import (
     ProtoErrorRes,
     ProtoMessage,
@@ -55,6 +55,7 @@ _PERIOD_MINUTES: dict[str, int] = {
 
 _PROTO_ERROR_PAYLOAD_TYPE = ProtoErrorRes().payloadType  # 50
 _OA_ERROR_PAYLOAD_TYPE = ProtoOAErrorRes().payloadType  # 2142
+_MAX_BARS_PER_PAGE = 4800
 
 
 class CTraderDataSource:
@@ -90,18 +91,39 @@ class CTraderDataSource:
         symbol: str,
         timeframe: str,
         limit: int,
+        until: datetime | None = None,
     ) -> pd.DataFrame:
         if timeframe not in _TIMEFRAME_TO_PERIOD:
             raise ValueError(
                 f"Unsupported timeframe '{timeframe}'. "
                 f"Supported: {sorted(_TIMEFRAME_TO_PERIOD)}"
             )
-        return asyncio.run(self._fetch(symbol, timeframe, limit))
+        return asyncio.run(self._fetch(symbol, timeframe, limit, until))
 
-    async def _fetch(self, symbol: str, timeframe: str, limit: int) -> pd.DataFrame:
+    def fetch_range(
+        self,
+        symbol: str,
+        timeframe: str,
+        since: datetime,
+        until: datetime,
+        log: Callable[[str], None] | None = None,
+    ) -> pd.DataFrame:
+        """Fetch all candles in [since, until] with pagination. Used for backtesting."""
+        since_ms = int(since.timestamp() * 1000)
+        until_ms = int(until.timestamp() * 1000)
+        return asyncio.run(
+            self._fetch_range(symbol, timeframe, since_ms, until_ms, log)
+        )
+
+    async def _fetch(
+        self, symbol: str, timeframe: str, limit: int, until: datetime | None = None
+    ) -> pd.DataFrame:
         minutes = _PERIOD_MINUTES[timeframe]
-        to_ts = int(datetime.now(UTC).timestamp() * 1000)
-        from_ts = to_ts - minutes * 60 * 1000 * limit
+        period_ms = minutes * 60 * 1000
+        # Subtract one period so toTimestamp is the close time of the last bar,
+        # matching Binance's convention where `until` = close time of last candle.
+        to_ts = int((until or datetime.now(UTC)).timestamp() * 1000) - period_ms
+        from_ts = to_ts - period_ms * limit
 
         ssl_ctx = ssl.create_default_context()
         reader, writer = await asyncio.open_connection(
@@ -194,6 +216,164 @@ class CTraderDataSource:
         return list(res.trendbar)
 
 
+    async def _paginate(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        symbol_id: int,
+        timeframe: str,
+        since_ms: int,
+        until_ms: int,
+        log: Callable[[str], None] | None = None,
+        label: str = "",
+    ) -> list[Any]:
+        """Fetch all trendbar pages for a range on an already-open connection."""
+        period_ms = _PERIOD_MINUTES[timeframe] * 60 * 1000
+        prefix = f"[{label}] " if label else ""
+        all_bars: list[Any] = []
+        current_from = since_ms
+        last_seen_bar_ts_ms = -1
+        page = 0
+
+        while current_from < until_ms:
+            page += 1
+            if log is not None:
+                ts = datetime.fromtimestamp(current_from / 1000, tz=UTC)
+                log(f"  {prefix}page {page} (since {ts.strftime('%Y-%m-%d %H:%M')} UTC) …")
+
+            bars = await self._get_trendbars(
+                reader, writer, symbol_id, timeframe,
+                current_from, until_ms, _MAX_BARS_PER_PAGE,
+            )
+            if not bars:
+                break
+            all_bars.extend(bars)
+
+            last_bar_ts_ms = bars[-1].utcTimestampInMinutes * 60 * 1000
+            if log is not None:
+                log(f"  {prefix}got {len(bars)} bars")
+
+            # API returns same trailing bars when no data exists past current_from
+            if last_bar_ts_ms <= last_seen_bar_ts_ms:
+                break
+            last_seen_bar_ts_ms = last_bar_ts_ms
+
+            if len(bars) < _MAX_BARS_PER_PAGE:
+                break
+            current_from = last_bar_ts_ms + period_ms
+
+        return all_bars
+
+    async def _fetch_range(
+        self,
+        symbol: str,
+        timeframe: str,
+        since_ms: int,
+        until_ms: int,
+        log: Callable[[str], None] | None = None,
+    ) -> pd.DataFrame:
+        ssl_ctx = ssl.create_default_context()
+        reader, writer = await asyncio.open_connection(
+            self._host, self._port, ssl=ssl_ctx
+        )
+        try:
+            if log is not None:
+                log("Connecting to cTrader …")
+            await self._app_auth(reader, writer)
+            if log is not None:
+                log("App authenticated")
+            await self._account_auth(reader, writer)
+            if log is not None:
+                log("Account authenticated")
+            symbol_id, digits = await self._resolve_symbol(reader, writer, symbol)
+            if log is not None:
+                log(f"Symbol resolved: {symbol} (id={symbol_id}, digits={digits})")
+            all_bars = await self._paginate(
+                reader, writer, symbol_id, timeframe, since_ms, until_ms, log
+            )
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+        df = _decode_trendbars(all_bars, digits, len(all_bars))
+        since_dt = datetime.fromtimestamp(since_ms / 1000, tz=UTC)
+        until_dt = datetime.fromtimestamp(until_ms / 1000, tz=UTC)
+        mask = (df["timestamp"] >= since_dt) & (df["timestamp"] <= until_dt)
+        return df[mask].reset_index(drop=True)
+
+    def fetch_both_ranges(
+        self,
+        symbol: str,
+        htf_timeframe: str,
+        htf_since: datetime,
+        ltf_timeframe: str,
+        ltf_since: datetime,
+        until: datetime,
+        log: Callable[[str], None] | None = None,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Fetch HTF and LTF ranges in a single authenticated connection."""
+        return asyncio.run(
+            self._fetch_both_ranges(
+                symbol,
+                htf_timeframe, int(htf_since.timestamp() * 1000),
+                ltf_timeframe, int(ltf_since.timestamp() * 1000),
+                int(until.timestamp() * 1000),
+                log,
+            )
+        )
+
+    async def _fetch_both_ranges(
+        self,
+        symbol: str,
+        htf_tf: str,
+        htf_since_ms: int,
+        ltf_tf: str,
+        ltf_since_ms: int,
+        until_ms: int,
+        log: Callable[[str], None] | None = None,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        ssl_ctx = ssl.create_default_context()
+        reader, writer = await asyncio.open_connection(
+            self._host, self._port, ssl=ssl_ctx
+        )
+        try:
+            if log is not None:
+                log("Connecting to cTrader …")
+            await self._app_auth(reader, writer)
+            if log is not None:
+                log("App authenticated")
+            await self._account_auth(reader, writer)
+            if log is not None:
+                log("Account authenticated")
+            symbol_id, digits = await self._resolve_symbol(reader, writer, symbol)
+            if log is not None:
+                log(f"Symbol resolved: {symbol} (id={symbol_id}, digits={digits})")
+            if log is not None:
+                log(f"Fetching {htf_tf} bars …")
+            htf_bars = await self._paginate(
+                reader, writer, symbol_id, htf_tf, htf_since_ms, until_ms, log,
+                label=htf_tf,
+            )
+            if log is not None:
+                log(f"Fetching {ltf_tf} bars …")
+            ltf_bars = await self._paginate(
+                reader, writer, symbol_id, ltf_tf, ltf_since_ms, until_ms, log,
+                label=ltf_tf,
+            )
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+        def _as_df(bars: list[Any], since_ms: int) -> pd.DataFrame:
+            df = _decode_trendbars(bars, digits, len(bars))
+            since_dt = datetime.fromtimestamp(since_ms / 1000, tz=UTC)
+            until_dt = datetime.fromtimestamp(until_ms / 1000, tz=UTC)
+            mask = (df["timestamp"] >= since_dt) & (df["timestamp"] <= until_dt)
+            return df[mask].reset_index(drop=True)
+
+        return _as_df(htf_bars, htf_since_ms), _as_df(ltf_bars, ltf_since_ms)
+
+
 async def _send(writer: asyncio.StreamWriter, inner_msg: Any) -> None:
     outer = ProtoMessage()
     outer.payloadType = inner_msg.payloadType
@@ -201,6 +381,7 @@ async def _send(writer: asyncio.StreamWriter, inner_msg: Any) -> None:
     data = outer.SerializeToString()
     writer.write(struct.pack(">I", len(data)) + data)
     await writer.drain()
+    await asyncio.sleep(0.4)  # stay under cTrader rate limit
 
 
 async def _recv_type(
@@ -231,9 +412,12 @@ async def _recv_type(
             raise RuntimeError(f"cTrader OA error {err.errorCode}: {err.description}")
 
 
+_PRICE_DIVISOR = 100_000  # cTrader encodes all trendbar prices as integer * 10^-5
+
+
 def _decode_trendbars(trendbars: list[Any], digits: int, limit: int) -> pd.DataFrame:
     """Convert raw ProtoOATrendbar objects to a standard OHLCV DataFrame."""
-    divisor = 10**digits
+    divisor = _PRICE_DIVISOR
     rows = []
     for bar in trendbars:
         low = bar.low / divisor

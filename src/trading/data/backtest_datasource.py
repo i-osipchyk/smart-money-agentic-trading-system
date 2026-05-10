@@ -21,11 +21,17 @@ Usage::
         ...
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 import ccxt
 import pandas as pd
+
+if TYPE_CHECKING:
+    from trading.data.ctrader_datasource import CTraderDataSource
 
 _TF_SECONDS: dict[str, int] = {
     "5m": 300,
@@ -64,6 +70,7 @@ class BacktestDataSource:
         ltf_limit: int,
         bt_from: datetime,
         bt_to: datetime,
+        ctrader_source: CTraderDataSource | None = None,
     ) -> None:
         self._symbol = symbol
         self._htf_tf = htf_timeframe
@@ -88,7 +95,10 @@ class BacktestDataSource:
 
         self._htf_df: pd.DataFrame = pd.DataFrame()
         self._ltf_df: pd.DataFrame = pd.DataFrame()
-        self._exchange = ccxt.binanceusdm()
+        self._ctrader_source = ctrader_source
+        self._exchange: ccxt.binanceusdm | None = (
+            ccxt.binanceusdm() if ctrader_source is None else None
+        )
 
     @property
     def total_steps(self) -> int:
@@ -108,13 +118,27 @@ class BacktestDataSource:
             if progress is not None:
                 progress(msg)
 
-        _log(f"Fetching HTF ({self._htf_tf}) data …")
-        self._htf_df = self._fetch_all(self._htf_tf, self._htf_fetch_from, self._fetch_to, _log)
-        _log(f"  → {len(self._htf_df)} candles\n")
+        if self._ctrader_source is not None:
+            _log(f"Fetching HTF ({self._htf_tf}) + LTF ({self._ltf_tf}) data from cTrader …")
+            self._htf_df, self._ltf_df = self._ctrader_source.fetch_both_ranges(
+                self._symbol,
+                self._htf_tf, self._htf_fetch_from,
+                self._ltf_tf, self._ltf_fetch_from,
+                self._fetch_to, _log,
+            )
+            _log(f"  → HTF: {len(self._htf_df)} candles, LTF: {len(self._ltf_df)} candles\n")
+        else:
+            _log(f"Fetching HTF ({self._htf_tf}) data …")
+            self._htf_df = self._fetch_all(
+                self._htf_tf, self._htf_fetch_from, self._fetch_to, _log
+            )
+            _log(f"  → {len(self._htf_df)} candles\n")
 
-        _log(f"Fetching LTF ({self._ltf_tf}) data …")
-        self._ltf_df = self._fetch_all(self._ltf_tf, self._ltf_fetch_from, self._fetch_to, _log)
-        _log(f"  → {len(self._ltf_df)} candles\n")
+            _log(f"Fetching LTF ({self._ltf_tf}) data …")
+            self._ltf_df = self._fetch_all(
+                self._ltf_tf, self._ltf_fetch_from, self._fetch_to, _log
+            )
+            _log(f"  → {len(self._ltf_df)} candles\n")
 
     def __iter__(self) -> Iterator[tuple[datetime, pd.DataFrame, pd.DataFrame]]:
         """
@@ -167,6 +191,7 @@ class BacktestDataSource:
             if log is not None:
                 log(f"  page {page} (since {current_since.strftime('%Y-%m-%d %H:%M')} UTC) …")
 
+            assert self._exchange is not None
             raw = self._exchange.fetch_ohlcv(
                 self._symbol, timeframe, since=since_ms, limit=_FETCH_LIMIT
             )

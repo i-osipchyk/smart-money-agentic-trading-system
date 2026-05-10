@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv as _csv
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from trading.agents.trade_validation_agent import (
 )
 from trading.core.models import StrategySetup, TradeDecision
 from trading.data.backtest_datasource import BacktestDataSource
+from trading.data.ctrader_datasource import CTraderDataSource
 from trading.strategies.base import Strategy
 
 from .config import _FMT, RunConfig, SimulationResult, TradeRecord, _ts, make_strategy
@@ -38,6 +40,16 @@ class BacktestRunner:
         strategy = make_strategy(
             cfg.strategy, cfg.fvg_offset_pct, cfg.block_tested_fvgs
         )
+        ctrader_src = (
+            CTraderDataSource(
+                client_id=os.environ["CTRADER_CLIENT_ID"],
+                client_secret=os.environ["CTRADER_CLIENT_SECRET"],
+                access_token=os.environ["CTRADER_ACCESS_TOKEN"],
+                account_id=int(os.environ["CTRADER_ACCOUNT_ID"]),
+            )
+            if cfg.data_provider == "ctrader"
+            else None
+        )
         bt_source = BacktestDataSource(
             symbol=cfg.symbol,
             htf_timeframe=cfg.htf_tf.value,
@@ -46,6 +58,7 @@ class BacktestRunner:
             ltf_limit=cfg.ltf_limit,
             bt_from=cfg.bt_from,
             bt_to=cfg.bt_to,
+            ctrader_source=ctrader_src,
         )
 
         def both(s: str) -> None:

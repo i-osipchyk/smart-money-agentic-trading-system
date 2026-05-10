@@ -48,12 +48,13 @@ class TestDecodeTrendbars:
         assert abs(row["high"] - 1.05300) < 1e-9
         assert abs(row["close"] - 1.05050) < 1e-9
 
-    def test_price_decoding_two_digits(self) -> None:
-        # XAUUSD: low=1800.00, high=1850.00
-        bar = _make_trendbar(180000, 0, 5000, 2500, 50, 1000)
-        df = _decode_trendbars([bar], digits=2, limit=1)
-        assert abs(df.iloc[0]["low"] - 1800.00) < 1e-8
-        assert abs(df.iloc[0]["high"] - 1850.00) < 1e-8
+    def test_price_decoding_non_five_digits(self) -> None:
+        # cTrader always stores prices as integer * 10^-5, regardless of symbol digits.
+        # US500 price=7222.60 → raw low=722260000, high=7225.00 → deltaHigh=240000
+        bar = _make_trendbar(722260000, 0, 240000, 120000, 50, 1000)
+        df = _decode_trendbars([bar], digits=1, limit=1)
+        assert abs(df.iloc[0]["low"] - 7222.60) < 1e-4
+        assert abs(df.iloc[0]["high"] - 7225.00) < 1e-4
 
     def test_volume_converted_to_float(self) -> None:
         bar = _make_trendbar(100000, 0, 0, 0, 500, 1000)

@@ -6,9 +6,20 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tkinter import ttk
 
+from dotenv import load_dotenv
+
 from trading.agents.llm_provider import PROVIDERS, LLMConfig
 from trading.core.models import Timeframe
 from trading.runner import BacktestRunner, OneTimeRunner, RunConfig
+
+load_dotenv()
+
+# symbol → data provider used for live/past fetching
+_SYMBOL_PRESETS: dict[str, str] = {
+    "BTC/USDT:USDT": "binance",
+    "ETH/USDT:USDT": "binance",
+    "US500":         "ctrader",
+}
 
 _TF_VALUES = ["5m", "15m", "1h", "4h", "1d"]
 _TF_SECONDS: dict[str, int] = {
@@ -53,6 +64,8 @@ class ValidationGUI:
         self._order_timeout_var = tk.StringVar(value="10")
         self._max_risk_var = tk.StringVar(value="1.0")
         self._rr_ratio_var = tk.StringVar(value="2.0")
+
+        self._data_provider_var = tk.StringVar(value="binance")
 
         _default_provider = next(iter(PROVIDERS))
         self._provider_var = tk.StringVar(value=_default_provider)
@@ -159,7 +172,14 @@ class ValidationGUI:
     def _build_symbol_section(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Symbol", padding=8)
         frame.pack(fill=tk.X, pady=(0, 8))
-        ttk.Entry(frame, textvariable=self._symbol_var, width=18).pack(anchor=tk.W)
+        combo = ttk.Combobox(
+            frame,
+            textvariable=self._symbol_var,
+            values=list(_SYMBOL_PRESETS),
+            width=20,
+        )
+        combo.pack(anchor=tk.W)
+        combo.bind("<<ComboboxSelected>>", lambda _: self._on_symbol_select())
 
     def _build_strategy_section(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Strategy", padding=8)
@@ -176,7 +196,9 @@ class ValidationGUI:
         src_frame = ttk.LabelFrame(parent, text="Data Source", padding=8)
         src_frame.pack(fill=tk.X, pady=(0, 8))
         for label, value in [
-            ("CSV", "csv"), ("Past Data", "past"), ("Current Data", "live"),
+            ("CSV", "csv"),
+            ("Past Data", "past"),
+            ("Live Data", "live"),
         ]:
             ttk.Radiobutton(
                 src_frame, text=label, variable=self._source_var, value=value,
@@ -374,6 +396,11 @@ class ValidationGUI:
 
     # --------------------------------------------------------- dynamic state
 
+    def _on_symbol_select(self) -> None:
+        symbol = self._symbol_var.get()
+        if symbol in _SYMBOL_PRESETS:
+            self._data_provider_var.set(_SYMBOL_PRESETS[symbol])
+
     def _on_provider_change(self) -> None:
         provider = self._provider_var.get()
         models = PROVIDERS.get(provider, [])
@@ -477,6 +504,8 @@ class ValidationGUI:
         config.htf_csv = self._htf_csv_var.get() or None
         config.ltf_csv = self._ltf_csv_var.get() or None
 
+        config.data_provider = self._data_provider_var.get()  # type: ignore[assignment]
+
         if config.data_source == "past":
             try:
                 config.until = datetime.strptime(
@@ -510,6 +539,8 @@ class ValidationGUI:
             self._gui_queue.put("[ERROR] 'From' must be before 'To'.\n")
             self._gui_queue.put(None)
             return None
+
+        config.data_provider = self._data_provider_var.get()  # type: ignore[assignment]
 
         return config
 
