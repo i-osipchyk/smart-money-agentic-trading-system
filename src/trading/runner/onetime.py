@@ -49,9 +49,7 @@ class OneTimeRunner:
             out(f"[ERROR] {exc}")
             return
 
-        strategy = make_strategy(
-            cfg.strategy, cfg.fvg_offset_pct, cfg.block_tested_fvgs
-        )
+        strategy = make_strategy(cfg)
 
         if cfg.output_mode == "strategy_inspect":
             from trading.strategies.htf_fvg_ltf_bos import (
@@ -60,13 +58,22 @@ class OneTimeRunner:
             from trading.strategies.htf_fvg_ltf_bos_v2 import (
                 format_strategy_components as _fmt_v2,
             )
-            _fmt = _fmt_v2 if cfg.strategy == "htf_fvg_ltf_bos_v2" else _fmt_v1
-            gui_output(
-                _fmt(
-                    cfg.symbol, htf_df, cfg.htf_tf, ltf_df, cfg.ltf_tf,
-                    cfg.fvg_offset_pct, cfg.block_tested_fvgs,
+            if cfg.strategy == "htf_fvg_ltf_bos_v2":
+                gui_output(
+                    _fmt_v2(
+                        cfg.symbol, htf_df, cfg.htf_tf, ltf_df, cfg.ltf_tf,
+                        cfg.fvg_offset_pct, cfg.block_fvg_mode,
+                        cfg.use_trend_filter, cfg.min_rr_ratio,
+                        cfg.htf_limit, cfg.htf_target_limit,
+                    )
                 )
-            )
+            else:
+                gui_output(
+                    _fmt_v1(
+                        cfg.symbol, htf_df, cfg.htf_tf, ltf_df, cfg.ltf_tf,
+                        cfg.fvg_offset_pct, cfg.block_fvg_mode,
+                    )
+                )
             return
 
         setup = strategy.detect_entry(
@@ -268,14 +275,21 @@ class OneTimeRunner:
 
         return "OPEN", fill_dt, None
 
+    @staticmethod
+    def _effective_htf_limit(cfg: RunConfig) -> int:
+        if cfg.strategy == "htf_fvg_ltf_bos_v2" and cfg.htf_target_limit:
+            return max(cfg.htf_limit, cfg.htf_target_limit)
+        return cfg.htf_limit
+
     def _fetch_data(self) -> tuple[pd.DataFrame, pd.DataFrame]:
         cfg = self._config
+        htf_limit = self._effective_htf_limit(cfg)
         if cfg.data_source == "csv":
             src = CSVDataSource(data_dir=self._data_dir)
             htf_df = src.get_ohlcv(
                 symbol=cfg.symbol,
                 timeframe=cfg.htf_tf.value,
-                limit=cfg.htf_limit,
+                limit=htf_limit,
                 filename_override=cfg.htf_csv,
             )
             ltf_df = src.get_ohlcv(
@@ -289,7 +303,7 @@ class OneTimeRunner:
             htf_df = ct.get_ohlcv(
                 symbol=cfg.symbol,
                 timeframe=cfg.htf_tf.value,
-                limit=cfg.htf_limit,
+                limit=htf_limit,
                 until=cfg.until,
             )
             ltf_df = ct.get_ohlcv(
@@ -304,7 +318,7 @@ class OneTimeRunner:
             ltf_since: datetime | None = None
             if cfg.data_source == "past" and cfg.until is not None:
                 htf_since = cfg.until - timedelta(
-                    seconds=cfg.htf_limit * _TF_SECONDS[cfg.htf_tf.value]
+                    seconds=htf_limit * _TF_SECONDS[cfg.htf_tf.value]
                 )
                 ltf_since = cfg.until - timedelta(
                     seconds=cfg.ltf_limit * _TF_SECONDS[cfg.ltf_tf.value]
@@ -312,7 +326,7 @@ class OneTimeRunner:
             htf_df = binance.get_ohlcv(
                 symbol=cfg.symbol,
                 timeframe=cfg.htf_tf.value,
-                limit=cfg.htf_limit,
+                limit=htf_limit,
                 since=htf_since,
             )
             ltf_df = binance.get_ohlcv(

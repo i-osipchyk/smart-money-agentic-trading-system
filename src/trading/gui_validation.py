@@ -58,7 +58,10 @@ class ValidationGUI:
         self._ltf_limit_var = tk.StringVar(value="24")
         self._symbol_var = tk.StringVar(value="BTC/USDT:USDT")
         self._offset_var = tk.StringVar(value="0.05")
-        self._block_tested_var = tk.BooleanVar(value=False)
+        self._block_fvg_mode_var = tk.StringVar(value="active")
+        self._use_trend_filter_var = tk.BooleanVar(value=True)
+        self._min_rr_ratio_var = tk.StringVar(value="1.0")
+        self._htf_target_limit_var = tk.StringVar(value="0")
         self._strategy_var = tk.StringVar(value="htf_fvg_ltf_bos_v2")
         self._output_mode_var = tk.StringVar(value="agent")
         self._order_timeout_var = tk.StringVar(value="10")
@@ -91,15 +94,19 @@ class ValidationGUI:
         self._model_frames: list[ttk.LabelFrame] = []
         # params frames used as pack anchors for model frame insertion
         self._params_anchor_frames: list[ttk.LabelFrame] = []
+        # widgets shown only for V2 strategy (grid_remove / grid toggled)
+        self._v2_widgets: list[ttk.Widget] = []
 
         self._build_layout()
         self._populate_csv_dropdowns()
         self._refresh_until_default()
+        self._on_strategy_change()
 
         self._ltf_tf_var.trace_add("write", lambda *_: self._refresh_until_default())
         self._source_var.trace_add("write", lambda *_: self._on_source_change())
         self._provider_var.trace_add("write", lambda *_: self._on_provider_change())
         self._output_mode_var.trace_add("write", lambda *_: self._on_mode_change())
+        self._strategy_var.trace_add("write", lambda *_: self._on_strategy_change())
 
     # ------------------------------------------------------------------ layout
 
@@ -304,33 +311,68 @@ class ValidationGUI:
             from_=0.0, to=100.0, increment=0.05, format="%.2f", width=7,
         ).grid(row=0, column=1, sticky=tk.W)
 
-        ttk.Checkbutton(
-            inner, text="Block tested FVGs on path",
-            variable=self._block_tested_var,
-        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
-
         ttk.Label(inner, text="Order timeout (LTF candles)").grid(
-            row=2, column=0, sticky=tk.W, padx=(0, 6), pady=(6, 0)
+            row=1, column=0, sticky=tk.W, padx=(0, 6), pady=(6, 0)
         )
         ttk.Spinbox(
             inner, textvariable=self._order_timeout_var, from_=1, to=500, width=5,
-        ).grid(row=2, column=1, sticky=tk.W, pady=(6, 0))
+        ).grid(row=1, column=1, sticky=tk.W, pady=(6, 0))
 
         ttk.Label(inner, text="Max risk (% of entry)").grid(
-            row=3, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
+            row=2, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
         )
         ttk.Spinbox(
             inner, textvariable=self._max_risk_var,
             from_=0.1, to=100.0, increment=0.1, format="%.1f", width=5,
-        ).grid(row=3, column=1, sticky=tk.W, pady=(4, 0))
+        ).grid(row=2, column=1, sticky=tk.W, pady=(4, 0))
 
         ttk.Label(inner, text="Take profit (RR ratio)").grid(
-            row=4, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
+            row=3, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0)
         )
         ttk.Spinbox(
             inner, textvariable=self._rr_ratio_var,
             from_=0.5, to=20.0, increment=0.5, format="%.1f", width=5,
-        ).grid(row=4, column=1, sticky=tk.W, pady=(4, 0))
+        ).grid(row=3, column=1, sticky=tk.W, pady=(4, 0))
+
+        htf_lbl = ttk.Label(inner, text="HTF target candles (0 = HTF candles)")
+        htf_lbl.grid(row=4, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0))
+        htf_spn = ttk.Spinbox(
+            inner, textvariable=self._htf_target_limit_var, from_=0, to=500, width=5,
+        )
+        htf_spn.grid(row=4, column=1, sticky=tk.W, pady=(4, 0))
+        self._v2_widgets.extend([htf_lbl, htf_spn])
+
+    def _build_entry_filters_section(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="Entry Filters", padding=8)
+        frame.pack(fill=tk.X, pady=(0, 8))
+
+        inner = ttk.Frame(frame)
+        inner.pack(fill=tk.X)
+
+        ttk.Checkbutton(
+            inner, text="Trend filter",
+            variable=self._use_trend_filter_var,
+        ).grid(row=0, column=0, columnspan=2, sticky=tk.W)
+
+        ttk.Label(inner, text="Block FVG on path").grid(
+            row=1, column=0, sticky=tk.W, padx=(0, 6), pady=(6, 0)
+        )
+        ttk.Combobox(
+            inner,
+            textvariable=self._block_fvg_mode_var,
+            values=["none", "active", "tested", "active+tested"],
+            state="readonly",
+            width=14,
+        ).grid(row=1, column=1, sticky=tk.W, pady=(6, 0))
+
+        min_rr_lbl = ttk.Label(inner, text="Min RR filter")
+        min_rr_lbl.grid(row=2, column=0, sticky=tk.W, padx=(0, 6), pady=(4, 0))
+        min_rr_spn = ttk.Spinbox(
+            inner, textvariable=self._min_rr_ratio_var,
+            from_=0.5, to=10.0, increment=0.5, format="%.1f", width=5,
+        )
+        min_rr_spn.grid(row=2, column=1, sticky=tk.W, pady=(4, 0))
+        self._v2_widgets.extend([min_rr_lbl, min_rr_spn])
 
     def _build_date_range_section(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Date Range (UTC)", padding=8)
@@ -359,6 +401,7 @@ class ValidationGUI:
         self._build_timeframes_section(parent)
         self._build_model_section(parent)
         self._build_strategy_params_section(parent)
+        self._build_entry_filters_section(parent)
 
         self._submit_btn = ttk.Button(
             parent, text="Detect Entry", command=self._on_submit
@@ -383,6 +426,7 @@ class ValidationGUI:
         self._build_timeframes_section(parent)
         self._build_model_section(parent)
         self._build_strategy_params_section(parent)
+        self._build_entry_filters_section(parent)
 
         self._bt_submit_btn = ttk.Button(
             parent, text="Run Backtest", command=self._on_run_backtest
@@ -407,6 +451,14 @@ class ValidationGUI:
         self._model_var.set(models[0] if models else "")
         for combo in self._model_combos:
             combo["values"] = models
+
+    def _on_strategy_change(self) -> None:
+        is_v2 = self._strategy_var.get() == "htf_fvg_ltf_bos_v2"
+        for w in self._v2_widgets:
+            if is_v2:
+                w.grid()
+            else:
+                w.grid_remove()
 
     def _on_source_change(self) -> None:
         source = self._source_var.get()
@@ -471,6 +523,9 @@ class ValidationGUI:
             order_timeout = int(self._order_timeout_var.get())
             max_risk_pct = float(self._max_risk_var.get())
             rr_ratio = float(self._rr_ratio_var.get())
+            min_rr_ratio = float(self._min_rr_ratio_var.get())
+            htf_target_raw = int(self._htf_target_limit_var.get())
+            htf_target_limit = htf_target_raw if htf_target_raw > 0 else None
         except ValueError as exc:
             self._gui_queue.put(f"[ERROR] Invalid strategy parameter: {exc}\n")
             self._gui_queue.put(None)
@@ -485,7 +540,8 @@ class ValidationGUI:
             fvg_offset_pct=offset_pct,
             output_mode=self._output_mode_var.get(),  # type: ignore[arg-type]
             strategy=self._strategy_var.get(),  # type: ignore[arg-type]
-            block_tested_fvgs=self._block_tested_var.get(),
+            block_fvg_mode=self._block_fvg_mode_var.get(),  # type: ignore[arg-type]
+            use_trend_filter=self._use_trend_filter_var.get(),
             llm_config=LLMConfig(
                 provider=self._provider_var.get(),
                 model=self._model_var.get(),
@@ -493,6 +549,8 @@ class ValidationGUI:
             order_timeout=order_timeout,
             max_risk_pct=max_risk_pct,
             rr_ratio=rr_ratio,
+            min_rr_ratio=min_rr_ratio,
+            htf_target_limit=htf_target_limit,
         )
 
     def _build_onetime_config(self) -> RunConfig | None:
@@ -560,21 +618,35 @@ class ValidationGUI:
         symbol_folder = config.symbol.replace("/", "-").replace(":", "-")
 
         offset_pct = config.fvg_offset_pct * 100
-        btested = "_btested" if config.block_tested_fvgs else ""
+        _blk_slug = {
+            "none": "none", "active": "",
+            "tested": "tested", "active+tested": "acttest",
+        }
+        blk_slug = _blk_slug[config.block_fvg_mode]
+        blk = f"_blk{blk_slug}" if blk_slug else ""
+        trd = "" if config.use_trend_filter else "_notrd"
+        filters = f"{blk}{trd}"
         if config.output_mode == "prompt":
-            params = f"fvg{offset_pct:.4g}pct{btested}"
+            params = f"fvg{offset_pct:.4g}pct{filters}"
         elif config.output_mode == "agent":
             params = (
-                f"fvg{offset_pct:.4g}pct{btested}"
+                f"fvg{offset_pct:.4g}pct{filters}"
                 f"_to{config.order_timeout}"
                 f"_risk{config.max_risk_pct:.4g}pct"
             )
         else:  # baseline
+            v2_extras = ""
+            if config.strategy == "htf_fvg_ltf_bos_v2":
+                if config.min_rr_ratio != 1.0:
+                    v2_extras += f"_minrr{config.min_rr_ratio:.4g}"
+                if config.htf_target_limit:
+                    v2_extras += f"_htgt{config.htf_target_limit}"
             params = (
-                f"fvg{offset_pct:.4g}pct{btested}"
+                f"fvg{offset_pct:.4g}pct{filters}"
                 f"_rr{config.rr_ratio:.4g}"
                 f"_to{config.order_timeout}"
                 f"_risk{config.max_risk_pct:.4g}pct"
+                f"{v2_extras}"
             )
 
         filename = f"{from_str}_{to_str}.txt"

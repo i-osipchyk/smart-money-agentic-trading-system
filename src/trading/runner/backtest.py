@@ -37,8 +37,11 @@ class BacktestRunner:
         cfg = self._config
         assert cfg.bt_from is not None and cfg.bt_to is not None
 
-        strategy = make_strategy(
-            cfg.strategy, cfg.fvg_offset_pct, cfg.block_tested_fvgs
+        strategy = make_strategy(cfg)
+        effective_htf_limit = (
+            max(cfg.htf_limit, cfg.htf_target_limit)
+            if cfg.strategy == "htf_fvg_ltf_bos_v2" and cfg.htf_target_limit
+            else cfg.htf_limit
         )
         ctrader_src = (
             CTraderDataSource(
@@ -53,7 +56,7 @@ class BacktestRunner:
         bt_source = BacktestDataSource(
             symbol=cfg.symbol,
             htf_timeframe=cfg.htf_tf.value,
-            htf_limit=cfg.htf_limit,
+            htf_limit=effective_htf_limit,
             ltf_timeframe=cfg.ltf_tf.value,
             ltf_limit=cfg.ltf_limit,
             bt_from=cfg.bt_from,

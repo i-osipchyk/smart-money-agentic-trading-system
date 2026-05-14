@@ -34,14 +34,20 @@ _STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
 }
 
 
-def make_strategy(
-    key: StrategyKey,
-    fvg_offset_pct: float,
-    block_tested_fvgs: bool = False,
-) -> Strategy:
-    return _STRATEGY_REGISTRY[key](
-        fvg_offset_pct=fvg_offset_pct,
-        block_tested_fvgs=block_tested_fvgs,
+def make_strategy(config: RunConfig) -> Strategy:
+    if config.strategy == "htf_fvg_ltf_bos":
+        return HtfFvgLtfBos(
+            fvg_offset_pct=config.fvg_offset_pct,
+            block_fvg_mode=config.block_fvg_mode,
+            use_trend_filter=config.use_trend_filter,
+        )
+    return HtfFvgLtfBosV2(
+        fvg_offset_pct=config.fvg_offset_pct,
+        block_fvg_mode=config.block_fvg_mode,
+        use_trend_filter=config.use_trend_filter,
+        min_rr_ratio=config.min_rr_ratio,
+        htf_fvg_limit=config.htf_limit,
+        htf_target_limit=config.htf_target_limit,
     )
 
 
@@ -60,7 +66,8 @@ class RunConfig:
     fvg_offset_pct: float
     output_mode: OutputMode
     strategy: StrategyKey = "htf_fvg_ltf_bos_v2"
-    block_tested_fvgs: bool = False
+    block_fvg_mode: Literal["none", "active", "tested", "active+tested"] = "active"
+    use_trend_filter: bool = True
     # one-time data source
     data_source: DataSourceType = "live"
     htf_csv: str | None = None
@@ -76,6 +83,9 @@ class RunConfig:
     order_timeout: int = 10
     max_risk_pct: float = 1.0
     rr_ratio: float = 2.0
+    # v2 strategy extras
+    min_rr_ratio: float = 1.0
+    htf_target_limit: int | None = None
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 import pandas as pd
 
@@ -106,10 +107,18 @@ class HtfFvgLtfBosV2(Strategy):
     def __init__(
         self,
         fvg_offset_pct: float = 0.0005,
-        block_tested_fvgs: bool = False,
+        block_fvg_mode: Literal["none", "active", "tested", "active+tested"] = "active",
+        use_trend_filter: bool = True,
+        min_rr_ratio: float = 1.0,
+        htf_fvg_limit: int | None = None,
+        htf_target_limit: int | None = None,
     ) -> None:
         self._fvg_offset_pct = fvg_offset_pct
-        self._block_tested_fvgs = block_tested_fvgs
+        self._block_fvg_mode = block_fvg_mode
+        self._use_trend_filter = use_trend_filter
+        self._min_rr_ratio = min_rr_ratio
+        self._htf_fvg_limit = htf_fvg_limit
+        self._htf_target_limit = htf_target_limit
 
     def detect_entry(
         self,
@@ -123,8 +132,12 @@ class HtfFvgLtfBosV2(Strategy):
         Run the HTF-FVG / LTF-BOS strategy and return a StrategySetup if a
         valid entry is detected, or None otherwise.
         """
-        htf_fvgs = detect_fvg(htf_df, htf_timeframe)
-        htf_fractals = detect_fractals(htf_df, htf_timeframe)
+        htf_fvg_df = htf_df.tail(self._htf_fvg_limit) if self._htf_fvg_limit else htf_df
+        htf_target_df = htf_df.tail(self._htf_target_limit) if self._htf_target_limit else htf_df
+
+        htf_fvgs = detect_fvg(htf_fvg_df, htf_timeframe)
+        htf_fractals = detect_fractals(htf_fvg_df, htf_timeframe)
+        htf_target_fractals = detect_fractals(htf_target_df, htf_timeframe)
         ltf_fractals = detect_fractals(ltf_df, ltf_timeframe)
 
         _log_findings(htf_fvgs, ltf_fractals)
@@ -133,25 +146,26 @@ class HtfFvgLtfBosV2(Strategy):
         if signal is None:
             return None
 
-        htf_trend = trend_from_fractals(htf_fractals)
-        if htf_trend is not None and htf_trend != signal.direction:
-            return None
+        if self._use_trend_filter:
+            htf_trend = trend_from_fractals(htf_fractals)
+            if htf_trend is not None and htf_trend != signal.direction:
+                return None
 
-        levels = _compute_levels(signal, htf_fvgs, htf_fractals, self._block_tested_fvgs)
+        levels = _compute_levels(signal, htf_fvgs, htf_target_fractals, self._block_fvg_mode, self._min_rr_ratio)
         if levels is None:
             return None
         entry, stop_loss, take_profit = levels
 
         return StrategySetup(
             input_data=_format_input_data(
-                symbol, htf_df, htf_timeframe, ltf_df, ltf_timeframe
+                symbol, htf_fvg_df, htf_timeframe, ltf_df, ltf_timeframe
             ),
             strategy_description=self.description,
             direction=signal.direction,
             htf_poi=_format_htf_poi(signal),
             confirm_details=_format_confirm_details(signal),
-            target=_format_target(htf_fvgs, htf_fractals, signal.direction, entry, stop_loss),
-            candles=_format_candles(htf_df, htf_timeframe, n_candles=20),
+            target=_format_target(htf_fvgs, htf_target_fractals, signal.direction, entry, stop_loss),
+            candles=_format_candles(htf_fvg_df, htf_timeframe, n_candles=20),
             entry=entry,
             stop_loss=stop_loss,
             take_profit=take_profit,
@@ -165,11 +179,18 @@ def format_strategy_components(
     ltf_df: pd.DataFrame,
     ltf_timeframe: Timeframe,
     fvg_offset_pct: float = 0.0,
-    block_tested_fvgs: bool = False,
+    block_fvg_mode: Literal["none", "active", "tested", "active+tested"] = "active",
+    use_trend_filter: bool = True,
+    min_rr_ratio: float = 1.0,
+    htf_fvg_limit: int | None = None,
+    htf_target_limit: int | None = None,
 ) -> str:
     """Return a full human-readable breakdown of all strategy components."""
-    htf_fvgs = detect_fvg(htf_df, htf_timeframe)
-    htf_fractals = detect_fractals(htf_df, htf_timeframe)
+    htf_fvg_df = htf_df.tail(htf_fvg_limit) if htf_fvg_limit else htf_df
+    htf_target_df = htf_df.tail(htf_target_limit) if htf_target_limit else htf_df
+    htf_fvgs = detect_fvg(htf_fvg_df, htf_timeframe)
+    htf_fractals = detect_fractals(htf_fvg_df, htf_timeframe)
+    htf_target_fractals = detect_fractals(htf_target_df, htf_timeframe)
     ltf_fractals = detect_fractals(ltf_df, ltf_timeframe)
 
     sep = "─" * 56
@@ -273,6 +294,13 @@ def format_strategy_components(
             continue
         swing_low = min(lows_after, key=lambda f: f.price)
         lines.append(f"      Lowest Swing Low: {_fmt(swing_low.price)}  at {_ts(swing_low.timestamp)}")
+        zone_low = fvg.bottom * (1 - fvg_offset_pct)
+        if not (zone_low <= swing_low.price <= fvg.top):
+            lines.append(
+                f"      Not in FVG zone ({_fmt(zone_low)}–{_fmt(fvg.top)}) — skip"
+            )
+            lines.append("")
+            continue
         prior_highs = [h for h in ltf_highs if h.timestamp < swing_low.timestamp]
         if not prior_highs:
             lines.append("      Prior swing high (BOS level): (none)")
@@ -282,6 +310,10 @@ def format_strategy_components(
                 f"      Prior Swing High (BOS level): {_fmt(prior.price)}"
                 f"  at {_ts(prior.timestamp)}"
             )
+            if prior.price <= swing_low.price:
+                lines.append("      BOS level below swing low — invalid — skip")
+                lines.append("")
+                continue
             candles_after = ltf_df[ltf_df["timestamp"] > swing_low.timestamp]
             bos_rows = candles_after[candles_after["close"] > prior.price]
             if bos_rows.empty:
@@ -307,6 +339,13 @@ def format_strategy_components(
             continue
         swing_high = max(highs_after, key=lambda f: f.price)
         lines.append(f"      Highest Swing High: {_fmt(swing_high.price)}  at {_ts(swing_high.timestamp)}")
+        zone_high = fvg.top * (1 + fvg_offset_pct)
+        if not (fvg.bottom <= swing_high.price <= zone_high):
+            lines.append(
+                f"      Not in FVG zone ({_fmt(fvg.bottom)}–{_fmt(zone_high)}) — skip"
+            )
+            lines.append("")
+            continue
         prior_lows = [lo for lo in ltf_lows if lo.timestamp < swing_high.timestamp]
         if not prior_lows:
             lines.append("      Prior swing low (BOS level): (none)")
@@ -316,6 +355,10 @@ def format_strategy_components(
                 f"      Prior Swing Low (BOS level): {_fmt(prior.price)}"
                 f"  at {_ts(prior.timestamp)}"
             )
+            if prior.price >= swing_high.price:
+                lines.append("      BOS level above swing high — invalid — skip")
+                lines.append("")
+                continue
             candles_after = ltf_df[ltf_df["timestamp"] > swing_high.timestamp]
             bos_rows = candles_after[candles_after["close"] < prior.price]
             if bos_rows.empty:
@@ -330,31 +373,64 @@ def format_strategy_components(
     lines += [sep, "ENTRY DETECTION RESULT", ""]
     if signal is None:
         lines.append("  No entry detected.")
+    elif use_trend_filter and trend_from_fractals(htf_fractals) not in (None, signal.direction):
+        lines.append("  No entry detected (trend filter).")
     else:
-        levels = _compute_levels(signal, htf_fvgs, htf_fractals, block_tested_fvgs)
-        if levels is None:
-            lines += [
-                f"  Direction:   {signal.direction.value.upper()}",
-                f"  FVG:         bottom {_fmt(signal.fvg.bottom)}"
-                f"  top {_fmt(signal.fvg.top)}",
-                f"  BOS Level:   {_fmt(signal.bos_level)}"
-                f"  confirmed at {_ts(signal.bos_candle_timestamp)}",
-                "  BLOCKED: opposing FVG on path to target — no trade.",
-            ]
+        levels = _compute_levels(
+            signal, htf_fvgs, htf_target_fractals, block_fvg_mode, min_rr_ratio
+        )
+        # Compute display levels even when blocked, so the output always shows
+        # what entry/sl/tp would have been attempted.
+        bos = signal.bos_level
+        _sl = signal.swing_point.price
+        _risk = bos - _sl if signal.direction == Trend.BULLISH else _sl - bos
+        if levels is not None:
+            _disp_entry, _, _disp_tp = levels
         else:
-            entry, sl, tp = levels
-            lines += [
-                f"  Direction:   {signal.direction.value.upper()}",
-                f"  FVG:         bottom {_fmt(signal.fvg.bottom)}"
-                f"  top {_fmt(signal.fvg.top)}",
-                f"  Swing Point: {_fmt(signal.swing_point.price)}"
-                f"  at {_ts(signal.swing_point.timestamp)}",
-                f"  BOS Level:   {_fmt(signal.bos_level)}"
-                f"  confirmed at {_ts(signal.bos_candle_timestamp)}",
-                f"  Entry:       {_fmt(entry)}",
-                f"  Stop Loss:   {_fmt(sl)}",
-                f"  Take Profit: {_fmt(tp)}",
-            ]
+            _raw_target = _select_target(
+                htf_fvgs, htf_target_fractals, signal.direction, bos, _sl, min_rr_ratio
+            )
+            _fallback = bos + 2 * _risk if signal.direction == Trend.BULLISH else bos - 2 * _risk
+            _disp_tp = _raw_target if _raw_target is not None else _fallback
+            _disp_entry = bos
+            if _raw_target is not None and _risk:
+                _rr = (
+                    (_disp_tp - bos) / _risk if signal.direction == Trend.BULLISH
+                    else (bos - _disp_tp) / _risk
+                )
+                if _rr < 2.0:
+                    _adj = (_disp_tp + 2 * _sl) / 3
+                    if not _has_blocking_fvg(
+                        htf_fvgs, signal.direction, _adj, _disp_tp, block_fvg_mode
+                    ):
+                        _disp_entry = _adj
+        _rr_disp = abs(_disp_tp - _disp_entry) / _risk if _risk else 0.0
+        lines += [
+            f"  Direction:   {signal.direction.value.upper()}",
+            f"  FVG:         bottom {_fmt(signal.fvg.bottom)}"
+            f"  top {_fmt(signal.fvg.top)}",
+            f"  Swing Point: {_fmt(signal.swing_point.price)}"
+            f"  at {_ts(signal.swing_point.timestamp)}",
+            f"  BOS Level:   {_fmt(signal.bos_level)}"
+            f"  confirmed at {_ts(signal.bos_candle_timestamp)}",
+            f"  Entry:       {_fmt(_disp_entry)}",
+            f"  Stop Loss:   {_fmt(_sl)}",
+            f"  Take Profit: {_fmt(_disp_tp)}  ({_rr_disp:.1f}:1 RR)",
+        ]
+        if levels is None:
+            _raw_t = _select_target(
+                htf_fvgs, htf_target_fractals, signal.direction, bos, _sl, min_rr_ratio
+            )
+            if _raw_t is None and _has_structural_targets(
+                htf_fvgs, htf_target_fractals, signal.direction, bos
+            ):
+                lines.append(
+                    "  FILTERED: structural target below min RR — no trade."
+                )
+            else:
+                lines.append(
+                    "  BLOCKED: opposing FVG on path to target — no trade."
+                )
 
     return "\n".join(lines)
 
@@ -418,6 +494,8 @@ def _find_signal(
         if not prior_highs:
             continue
         prior_swing_high = prior_highs[-1]
+        if prior_swing_high.price <= swing_low.price:
+            continue
 
         candles_after = ltf_df[ltf_df["timestamp"] > swing_low.timestamp]
         bos_rows = candles_after[candles_after["close"] > prior_swing_high.price]
@@ -449,6 +527,8 @@ def _find_signal(
         if not prior_lows:
             continue
         prior_swing_low = prior_lows[-1]
+        if prior_swing_low.price >= swing_high.price:
+            continue
 
         candles_after = ltf_df[ltf_df["timestamp"] > swing_high.timestamp]
         bos_rows = candles_after[candles_after["close"] < prior_swing_low.price]
@@ -478,8 +558,9 @@ def _select_target(
     direction: Trend,
     entry: float,
     stop_loss: float,
+    min_rr_ratio: float = 1.0,
 ) -> float | None:
-    """Return the closest valid target that clears 1:1 RR, or None if none exist.
+    """Return the closest valid target that clears min_rr_ratio:1 RR, or None if none exist.
 
     Applies importance filtering on swing fractals before the RR check.
     For bullish setups: bearish FVG lows and swing highs above min_tp.
@@ -489,7 +570,7 @@ def _select_target(
 
     if direction == Trend.BULLISH:
         risk = entry - stop_loss
-        min_tp = entry + risk
+        min_tp = entry + risk * min_rr_ratio
 
         all_highs = sorted([f for f in fractals if f.is_high], key=lambda f: f.timestamp)
         for f in _important_swings(all_highs):
@@ -504,7 +585,7 @@ def _select_target(
 
     else:
         risk = stop_loss - entry
-        min_tp = entry - risk
+        min_tp = entry - risk * min_rr_ratio
 
         all_lows = sorted([f for f in fractals if not f.is_high], key=lambda f: f.timestamp)
         for f in _important_swings(all_lows):
@@ -523,14 +604,22 @@ def _has_blocking_fvg(
     direction: Trend,
     entry: float,
     target: float,
-    block_tested: bool = False,
+    block_fvg_mode: Literal["none", "active", "tested", "active+tested"] = "active",
 ) -> bool:
     """True if a qualifying opposing-direction FVG overlaps the entry→target path.
 
-    Active FVGs always qualify. Tested FVGs qualify only when block_tested is True.
+    "none": no blocking. "active": active only. "tested": tested only.
+    "active+tested": both active and tested block.
     """
+    if block_fvg_mode == "none":
+        return False
+
     def _qualifies(fvg: FVG) -> bool:
-        return fvg.status == FvgStatus.ACTIVE or (block_tested and fvg.status == FvgStatus.TESTED)
+        if block_fvg_mode == "active":
+            return fvg.status == FvgStatus.ACTIVE
+        if block_fvg_mode == "tested":
+            return fvg.status == FvgStatus.TESTED
+        return fvg.status in (FvgStatus.ACTIVE, FvgStatus.TESTED)  # active+tested
 
     if direction == Trend.BULLISH:
         return any(
@@ -550,23 +639,43 @@ def _has_blocking_fvg(
         )
 
 
+def _has_structural_targets(
+    fvgs: list[FVG],
+    fractals: list[Fractal],
+    direction: Trend,
+    entry: float,
+) -> bool:
+    """Return True if any structurally important target exists beyond entry."""
+    if direction == Trend.BULLISH:
+        all_highs = sorted([f for f in fractals if f.is_high], key=lambda f: f.timestamp)
+        if any(f.price > entry for f in _important_swings(all_highs)):
+            return True
+        return any(fvg.trend == Trend.BEARISH and fvg.bottom > entry for fvg in fvgs)
+    else:
+        all_lows = sorted([f for f in fractals if not f.is_high], key=lambda f: f.timestamp)
+        if any(f.price < entry for f in _important_swings(all_lows)):
+            return True
+        return any(fvg.trend == Trend.BULLISH and fvg.top < entry for fvg in fvgs)
+
+
 def _compute_levels(
     signal: _EntrySignal,
     fvgs: list[FVG],
     fractals: list[Fractal],
-    block_tested_fvgs: bool = False,
+    block_fvg_mode: Literal["none", "active", "tested", "active+tested"] = "active",
+    min_rr_ratio: float = 1.0,
 ) -> tuple[float, float, float] | None:
     """
     Return (entry, stop_loss, take_profit) or None if a blocking FVG is on the path.
 
     - Entry:      BOS level by default; moved toward stop loss if needed for 2:1.
     - Stop Loss:  exactly at the swing point price.
-    - Take Profit: closest valid target (importance-filtered, ≥1:1 RR).
+    - Take Profit: closest valid target (importance-filtered, ≥min_rr_ratio:1 RR).
                    Falls back to 2:1 from BOS entry when no structural target exists.
                    Entry is adjusted to achieve exactly 2:1 only when the selected
                    target gives < 2:1 at BOS; a target giving > 2:1 keeps BOS entry.
-    - Returns None when any active opposing FVG sits between entry and target
-      (or any tested opposing FVG too, when block_tested_fvgs is True).
+    - Returns None when a qualifying opposing FVG sits between entry and target
+      (controlled by block_fvg_mode).
     """
     entry = signal.bos_level
 
@@ -579,8 +688,10 @@ def _compute_levels(
         risk = stop_loss - entry
         fallback_tp = entry - 2 * risk
 
-    target = _select_target(fvgs, fractals, signal.direction, entry, stop_loss)
+    target = _select_target(fvgs, fractals, signal.direction, entry, stop_loss, min_rr_ratio)
     if target is None:
+        if _has_structural_targets(fvgs, fractals, signal.direction, entry):
+            return None  # structural targets exist but none clear min_rr — no valid path
         target = fallback_tp
     else:
         if signal.direction == Trend.BULLISH:
@@ -591,9 +702,15 @@ def _compute_levels(
         if rr < 2.0:
             # Slide entry toward stop loss so the target yields exactly 2:1.
             # Solving |tp - e| / |e - sl| = 2  →  e = (tp + 2*sl) / 3
-            entry = (target + 2 * stop_loss) / 3
+            # Only apply if the adjusted entry doesn't cross an opposing FVG;
+            # if it would, keep BOS entry (accept the lower RR).
+            adjusted = (target + 2 * stop_loss) / 3
+            if not _has_blocking_fvg(
+                fvgs, signal.direction, adjusted, target, block_fvg_mode
+            ):
+                entry = adjusted
 
-    if _has_blocking_fvg(fvgs, signal.direction, entry, target, block_tested_fvgs):
+    if _has_blocking_fvg(fvgs, signal.direction, entry, target, block_fvg_mode):
         return None
 
     return entry, stop_loss, target
@@ -661,24 +778,39 @@ def _format_confirm_details(signal: _EntrySignal) -> str:
 def _important_swings(swings: list[Fractal]) -> list[Fractal]:
     """Return only structurally important swings (local extremes among same-type fractals).
 
-    A swing high is important when its price is higher than both its neighbours.
-    A swing low is important when its price is lower than both its neighbours.
-    The first and last swing are always kept.
+    A swing high is important when its price is higher than its neighbours.
+    A swing low is important when its price is lower than its neighbours.
+    First and last swings are kept only when they are extreme relative to their
+    single neighbour (first > second for highs; last > second-to-last for highs).
     Input must be sorted by timestamp.
     """
-    if len(swings) <= 2:
+    if len(swings) <= 1:
         return list(swings)
-    result = [swings[0]]
+    is_high = swings[0].is_high
+    result: list[Fractal] = []
+
+    # First: only one neighbour (the next swing)
+    if is_high and swings[0].price > swings[1].price:
+        result.append(swings[0])
+    elif not is_high and swings[0].price < swings[1].price:
+        result.append(swings[0])
+
+    # Middle: must beat both neighbours
     for i in range(1, len(swings) - 1):
         prev_p = swings[i - 1].price
         cur_p = swings[i].price
         next_p = swings[i + 1].price
-        is_high = swings[i].is_high
         if is_high and cur_p > prev_p and cur_p > next_p:
             result.append(swings[i])
         elif not is_high and cur_p < prev_p and cur_p < next_p:
             result.append(swings[i])
-    result.append(swings[-1])
+
+    # Last: only one neighbour (the previous swing)
+    if is_high and swings[-1].price > swings[-2].price:
+        result.append(swings[-1])
+    elif not is_high and swings[-1].price < swings[-2].price:
+        result.append(swings[-1])
+
     return result
 
 

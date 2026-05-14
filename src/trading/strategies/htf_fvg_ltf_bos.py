@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 import pandas as pd
 
@@ -103,10 +104,12 @@ class HtfFvgLtfBos(Strategy):
     def __init__(
         self,
         fvg_offset_pct: float = 0.0005,
-        block_tested_fvgs: bool = False,
+        block_fvg_mode: Literal["none", "active", "tested", "active+tested"] = "active",
+        use_trend_filter: bool = True,
     ) -> None:
         self._fvg_offset_pct = fvg_offset_pct
-        self._block_tested_fvgs = block_tested_fvgs
+        self._block_fvg_mode = block_fvg_mode
+        self._use_trend_filter = use_trend_filter
 
     def detect_entry(
         self,
@@ -130,13 +133,16 @@ class HtfFvgLtfBos(Strategy):
         if signal is None:
             return None
 
-        htf_trend = trend_from_fractals(htf_fractals)
-        if htf_trend is not None and htf_trend != signal.direction:
-            return None
+        if self._use_trend_filter:
+            htf_trend = trend_from_fractals(htf_fractals)
+            if htf_trend is not None and htf_trend != signal.direction:
+                return None
 
         entry, stop_loss, take_profit = _compute_levels(signal)
 
-        if _has_blocking_fvg(htf_fvgs, signal.direction, entry, take_profit, self._block_tested_fvgs):
+        if _has_blocking_fvg(
+            htf_fvgs, signal.direction, entry, take_profit, self._block_fvg_mode
+        ):
             return None
 
         return StrategySetup(
@@ -233,6 +239,8 @@ def _find_signal(
         if not prior_highs:
             continue
         prior_swing_high = prior_highs[-1]
+        if prior_swing_high.price <= swing_low.price:
+            continue
 
         candles_after = ltf_df[ltf_df["timestamp"] > swing_low.timestamp]
         bos_rows = candles_after[candles_after["close"] > prior_swing_high.price]
@@ -264,6 +272,8 @@ def _find_signal(
         if not prior_lows:
             continue
         prior_swing_low = prior_lows[-1]
+        if prior_swing_low.price >= swing_high.price:
+            continue
 
         candles_after = ltf_df[ltf_df["timestamp"] > swing_high.timestamp]
         bos_rows = candles_after[candles_after["close"] < prior_swing_low.price]
@@ -292,14 +302,22 @@ def _has_blocking_fvg(
     direction: Trend,
     entry: float,
     take_profit: float,
-    block_tested: bool = False,
+    block_fvg_mode: Literal["none", "active", "tested", "active+tested"] = "active",
 ) -> bool:
     """True if a qualifying opposing-direction FVG overlaps the entry→TP path.
 
-    Active FVGs always qualify. Tested FVGs qualify only when block_tested is True.
+    "none": no blocking. "active": active only. "tested": tested only.
+    "active+tested": both active and tested block.
     """
+    if block_fvg_mode == "none":
+        return False
+
     def _qualifies(fvg: FVG) -> bool:
-        return fvg.status == FvgStatus.ACTIVE or (block_tested and fvg.status == FvgStatus.TESTED)
+        if block_fvg_mode == "active":
+            return fvg.status == FvgStatus.ACTIVE
+        if block_fvg_mode == "tested":
+            return fvg.status == FvgStatus.TESTED
+        return fvg.status in (FvgStatus.ACTIVE, FvgStatus.TESTED)  # active+tested
 
     if direction == Trend.BULLISH:
         return any(
@@ -464,7 +482,7 @@ def format_strategy_components(
     ltf_df: pd.DataFrame,
     ltf_timeframe: Timeframe,
     fvg_offset_pct: float = 0.0,
-    block_tested_fvgs: bool = False,  # unused here; accepted for API symmetry with v2
+    block_fvg_mode: Literal["none", "active", "tested", "active+tested"] = "active",  # accepted for API symmetry with v2
 ) -> str:
     """Return a full human-readable breakdown of all strategy components."""
     htf_fvgs = detect_fvg(htf_df, htf_timeframe)
