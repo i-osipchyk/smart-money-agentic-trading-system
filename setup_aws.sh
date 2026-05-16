@@ -42,7 +42,7 @@ set -euo pipefail
 #   CTRADER_ACCOUNT_ID
 #
 # Usage:
-#   source stack-htf-fvg-ltf-bos-btc.env && ./setup_aws.sh
+#   source stacks/stack-htf-fvg-ltf-bos-btc.env && ./setup_aws.sh
 # ---------------------------------------------------------------------------
 
 : "${AWS_ACCOUNT_ID:?}"
@@ -266,4 +266,6 @@ echo "     /tmp/out.json && cat /tmp/out.json"
 echo ""
 echo " To deploy a code update (updates ALL trading-signals-* functions):"
 echo "   AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID} AWS_REGION=${AWS_REGION} ./deploy.sh"
+echo ""
+echo " Stack env files live in stacks/ — copy stacks/stack-example.env to add a new stack."
 echo "============================================================"

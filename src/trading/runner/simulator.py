@@ -1,4 +1,4 @@
-"""Order simulator — simulates limit-order lifecycle over a BacktestDataSource."""
+"""Order simulator — simulates limit-order lifecycle over a candle window iterator."""
 
 from __future__ import annotations
 
@@ -6,11 +6,13 @@ from __future__ import annotations
 class AgentAbortError(Exception):
     """Raised by a get_decision callback to stop the simulation early."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from datetime import datetime
 from typing import Any
 
+import pandas as pd
+
 from trading.core.models import StrategySetup, Timeframe, TradeDecision, Trend
-from trading.data.backtest_datasource import BacktestDataSource
 from trading.strategies.base import Strategy
 
 from .config import _FMT, SimulationResult, TradeRecord, _ts
@@ -92,7 +94,7 @@ class OrderSimulator:
 
     def run(
         self,
-        bt_source: BacktestDataSource,
+        bt_source: Iterable[tuple[datetime, pd.DataFrame, pd.DataFrame]],
         get_decision: Callable[[StrategySetup], TradeDecision | None],
     ) -> SimulationResult:
         active_orders: list[dict[str, Any]] = []

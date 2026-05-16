@@ -1,11 +1,14 @@
-"""Backtest runner — iterates BacktestDataSource for all output modes."""
+"""Backtest runner — fetches data, windows it, iterates all output modes."""
 
 from __future__ import annotations
 
 import csv as _csv
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pandas as pd
 
 from trading.agents.trade_validation_agent import (
     TradeValidationAgent,
@@ -14,16 +17,26 @@ from trading.agents.trade_validation_agent import (
     parse_decision,
 )
 from trading.core.models import StrategySetup, TradeDecision
-from trading.data.backtest_datasource import BacktestDataSource
+from trading.data.binance_datasource import BinanceDataSource
 from trading.data.ctrader_datasource import CTraderDataSource
 from trading.strategies.base import Strategy
 
-from .config import _FMT, RunConfig, SimulationResult, TradeRecord, _ts, make_strategy
+from .config import (
+    _FMT,
+    _TF_SECONDS,
+    RunConfig,
+    SimulationResult,
+    TradeRecord,
+    _ts,
+    make_strategy,
+)
 from .simulator import AgentAbortError, OrderSimulator
+
+_WindowIter = Iterator[tuple[datetime, pd.DataFrame, pd.DataFrame]]
 
 
 class BacktestRunner:
-    """Iterates BacktestDataSource and handles all three output modes."""
+    """Fetches candle data, iterates windows, and handles all three output modes."""
 
     def __init__(self, config: RunConfig) -> None:
         self._config = config
@@ -43,26 +56,21 @@ class BacktestRunner:
             if cfg.strategy == "htf_fvg_ltf_bos_v2" and cfg.htf_target_limit
             else cfg.htf_limit
         )
-        ctrader_src = (
-            CTraderDataSource(
-                client_id=os.environ["CTRADER_CLIENT_ID"],
-                client_secret=os.environ["CTRADER_CLIENT_SECRET"],
-                access_token=os.environ["CTRADER_ACCESS_TOKEN"],
-                account_id=int(os.environ["CTRADER_ACCOUNT_ID"]),
-            )
-            if cfg.data_provider == "ctrader"
-            else None
+
+        ltf_step = _TF_SECONDS[cfg.ltf_tf.value]
+        bt_from_ts = (int(cfg.bt_from.timestamp()) // ltf_step) * ltf_step
+        bt_to_ts = (int(cfg.bt_to.timestamp()) // ltf_step) * ltf_step
+        total_steps = (bt_to_ts - bt_from_ts) // ltf_step + 1
+
+        htf_since = (
+            datetime.fromtimestamp(bt_from_ts, tz=UTC)
+            - timedelta(seconds=effective_htf_limit * _TF_SECONDS[cfg.htf_tf.value])
         )
-        bt_source = BacktestDataSource(
-            symbol=cfg.symbol,
-            htf_timeframe=cfg.htf_tf.value,
-            htf_limit=effective_htf_limit,
-            ltf_timeframe=cfg.ltf_tf.value,
-            ltf_limit=cfg.ltf_limit,
-            bt_from=cfg.bt_from,
-            bt_to=cfg.bt_to,
-            ctrader_source=ctrader_src,
+        ltf_since = (
+            datetime.fromtimestamp(bt_from_ts, tz=UTC)
+            - timedelta(seconds=cfg.ltf_limit * ltf_step)
         )
+        fetch_to = datetime.fromtimestamp(bt_to_ts, tz=UTC)
 
         def both(s: str) -> None:
             gui_output(s)
@@ -88,12 +96,45 @@ class BacktestRunner:
                 f"Timeout:   {cfg.order_timeout} LTF candles\n"
                 f"Max risk:  {cfg.max_risk_pct:.1f}% of entry\n"
             )
-        header += f"Steps:     {bt_source.total_steps}\n" + "=" * 60 + "\n\n"
+        header += f"Steps:     {total_steps}\n" + "=" * 60 + "\n\n"
         both(header)
 
         gui_output("Downloading candle data…\n")
-        bt_source.prepare(progress=detail_output)
+        if cfg.data_provider == "ctrader":
+            datasource: CTraderDataSource | BinanceDataSource = CTraderDataSource(
+                client_id=os.environ["CTRADER_CLIENT_ID"],
+                client_secret=os.environ["CTRADER_CLIENT_SECRET"],
+                access_token=os.environ["CTRADER_ACCESS_TOKEN"],
+                account_id=int(os.environ["CTRADER_ACCOUNT_ID"]),
+            )
+        else:
+            datasource = BinanceDataSource()
+
+        htf_df, ltf_df = datasource.fetch_both_ranges(
+            cfg.symbol,
+            cfg.htf_tf.value, htf_since,
+            cfg.ltf_tf.value, ltf_since,
+            fetch_to, detail_output,
+        )
         detail_output("\n")
+
+        def _iter_windows() -> _WindowIter:
+            current_ts = bt_from_ts
+            while current_ts <= bt_to_ts:
+                current_dt = datetime.fromtimestamp(current_ts, tz=UTC)
+                htf_slice = (
+                    htf_df[htf_df["timestamp"] < current_dt]
+                    .tail(effective_htf_limit)
+                    .reset_index(drop=True)
+                )
+                ltf_slice = (
+                    ltf_df[ltf_df["timestamp"] < current_dt]
+                    .tail(cfg.ltf_limit)
+                    .reset_index(drop=True)
+                )
+                if len(htf_slice) == effective_htf_limit and len(ltf_slice) == cfg.ltf_limit:
+                    yield current_dt, htf_slice, ltf_slice
+                current_ts += ltf_step
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         detail_lines: list[str] = []
@@ -103,10 +144,10 @@ class BacktestRunner:
             detail_lines.append(s)
 
         if cfg.output_mode == "prompt":
-            self._run_prompt(bt_source, strategy, gui_output, capturing_detail)
+            self._run_prompt(_iter_windows(), strategy, gui_output, capturing_detail)
         else:
             self._run_simulation(
-                bt_source, strategy, gui_output, capturing_detail, out_path
+                _iter_windows(), strategy, gui_output, capturing_detail, out_path
             )
 
         out_path.write_text("".join(detail_lines), encoding="utf-8")
@@ -114,7 +155,7 @@ class BacktestRunner:
 
     def _run_prompt(
         self,
-        bt_source: BacktestDataSource,
+        windows: _WindowIter,
         strategy: Strategy,
         gui_output: Callable[[str], None],
         detail_output: Callable[[str], None],
@@ -123,7 +164,7 @@ class BacktestRunner:
         setups_found = 0
         step_num = 0
 
-        for current_dt, htf_df, ltf_df in bt_source:
+        for current_dt, htf_df, ltf_df in windows:
             step_num += 1
             try:
                 setup = strategy.detect_entry(
@@ -151,7 +192,7 @@ class BacktestRunner:
 
     def _run_simulation(
         self,
-        bt_source: BacktestDataSource,
+        windows: _WindowIter,
         strategy: Strategy,
         gui_output: Callable[[str], None],
         detail_output: Callable[[str], None],
@@ -261,7 +302,7 @@ class BacktestRunner:
             max_risk_pct=cfg.max_risk_pct,
             detail_log=detail_output,
         )
-        result = simulator.run(bt_source, get_decision)
+        result = simulator.run(windows, get_decision)
 
         if cfg.output_mode == "agent":
             if csv_fh is not None:
@@ -276,7 +317,6 @@ class BacktestRunner:
                 gui_output(msg)
                 detail_output(msg)
 
-        # Per-trade summary rows → GUI only
         gui_output("\n")
         for t in result.trades:
             close_str = _ts(t.close_dt) if t.close_dt else "—"
@@ -290,7 +330,6 @@ class BacktestRunner:
                 f"  {t.result}\n"
             )
 
-        # Metrics → both GUI and detail file
         metrics = self._format_metrics(result, metrics_title, cfg.rr_ratio)
         gui_output(metrics)
         detail_output(metrics)
@@ -298,25 +337,27 @@ class BacktestRunner:
     @staticmethod
     def _format_metrics(result: SimulationResult, title: str, rr_ratio: float) -> str:
         trades = result.trades
-        canceled_price   = [t for t in trades if t.result == "CANCELED_PRICE"]
-        canceled_timeout = [t for t in trades if t.result == "CANCELED_TIMEOUT"]
-        wins   = [t for t in trades if t.result == "WIN"]
-        losses = [t for t in trades if t.result == "LOSS"]
-        open_  = [t for t in trades if t.result == "OPEN"]
+        from collections import Counter
+        counts = Counter(t.result for t in trades)
+        canceled_price = counts["CANCELED_PRICE"]
+        canceled_timeout = counts["CANCELED_TIMEOUT"]
+        wins = counts["WIN"]
+        losses = counts["LOSS"]
+        open_ = counts["OPEN"]
         filled = wins + losses + open_
 
-        win_rate = (
-            len(wins) / (len(wins) + len(losses)) * 100 if (wins or losses) else 0.0
-        )
-        # Compute actual R from trade records (TP may vary per trade).
+        win_rate = wins / (wins + losses) * 100 if (wins or losses) else 0.0
+
         def _trade_rr(t: TradeRecord) -> float:
             if t.tp is None:
                 return 0.0
             return abs(t.tp - t.entry) / abs(t.entry - t.sl) if t.entry != t.sl else 0.0
 
-        net_r = sum(_trade_rr(t) for t in wins) - len(losses) * 1.0
-        avg_rr = _trade_rr(wins[0]) if len(wins) == 1 else (
-            sum(_trade_rr(t) for t in wins) / len(wins) if wins else 0.0
+        win_trades = [t for t in trades if t.result == "WIN"]
+        net_r = sum(_trade_rr(t) for t in win_trades) - losses * 1.0
+        avg_rr = (
+            _trade_rr(win_trades[0]) if len(win_trades) == 1
+            else (sum(_trade_rr(t) for t in win_trades) / len(win_trades) if win_trades else 0.0)
         )
 
         lines = [
@@ -331,19 +372,18 @@ class BacktestRunner:
             lines.append(f"  No trade (filtered): {result.skipped_no_trade}\n")
         if result.skipped_risk:
             lines.append(f"  Risk too high:       {result.skipped_risk}\n")
-        total_decided = len(wins) + len(losses)
         lines += [
             f"Orders placed:        {len(trades)}\n",
-            f"  Canceled (price):   {len(canceled_price)}\n",
-            f"  Canceled (timeout): {len(canceled_timeout)}\n",
-            f"  Filled:             {len(filled)}\n",
-            f"    Wins:             {len(wins)}\n",
-            f"    Losses:           {len(losses)}\n",
-            f"    Open (end):       {len(open_)}\n",
-            f"Win rate:             {win_rate:.1f}%  ({len(wins)} / {total_decided})\n",
+            f"  Canceled (price):   {canceled_price}\n",
+            f"  Canceled (timeout): {canceled_timeout}\n",
+            f"  Filled:             {filled}\n",
+            f"    Wins:             {wins}\n",
+            f"    Losses:           {losses}\n",
+            f"    Open (end):       {open_}\n",
+            f"Win rate:             {win_rate:.1f}%  ({wins} / {wins + losses})\n",
             f"Avg RR (wins):        {avg_rr:.2f}:1\n",
             f"Net R:                {net_r:+.2f}R"
-            f"  ({len(wins)} wins, {len(losses)} losses × -1R)\n",
+            f"  ({wins} wins, {losses} losses × -1R)\n",
             "=" * 60 + "\n",
         ]
         return "".join(lines)

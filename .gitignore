@@ -143,8 +143,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-stack*.env
-!stack-example.env
+stacks/stack*.env
+!stacks/stack-example.env
 
 # Spyder project settings
 .spyderproject

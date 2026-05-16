@@ -14,6 +14,9 @@ set -euo pipefail
 #
 # Usage:
 #   AWS_ACCOUNT_ID=123456789012 AWS_REGION=us-east-1 ./deploy.sh
+#
+# Stack env files live in stacks/. To set up a new Lambda:
+#   source stacks/stack-example.env && ./setup_aws.sh
 # ---------------------------------------------------------------------------
 
 : "${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is required}"

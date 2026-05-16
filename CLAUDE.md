@@ -97,7 +97,7 @@ docs/adr/              # Architecture Decision Records
 Dockerfile             # Lambda container image
 setup_aws.sh           # One-time AWS infrastructure setup per Lambda
 deploy.sh              # Build + push image, update all Lambda functions
-stack-*.env            # Per-deployment env var files (gitignored)
+stacks/                # Per-deployment env var files (stack-*.env gitignored; stack-example.env committed)
 ```
 
 ---
