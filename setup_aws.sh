@@ -29,10 +29,17 @@ set -euo pipefail
 #
 # Optional env vars (have defaults):
 #   HTF_LIMIT             — default 72
-#   LTF_LIMIT             — default 16
+#   LTF_LIMIT             — default 24
 #   FVG_OFFSET_SPINUNITS  — default 10
-#   MODE                  — default prompt
+#   MODE                  — default alert
+#   DATA_PROVIDER         — default binance (or ctrader)
 #   ANTHROPIC_API_KEY     — required only when MODE=agent
+#
+# cTrader credentials (required when DATA_PROVIDER=ctrader):
+#   CTRADER_CLIENT_ID
+#   CTRADER_CLIENT_SECRET
+#   CTRADER_ACCESS_TOKEN
+#   CTRADER_ACCOUNT_ID
 #
 # Usage:
 #   source stack-htf-fvg-ltf-bos-btc.env && ./setup_aws.sh
@@ -51,10 +58,15 @@ set -euo pipefail
 : "${TELEGRAM_CHAT_ID:?}"
 
 HTF_LIMIT="${HTF_LIMIT:-72}"
-LTF_LIMIT="${LTF_LIMIT:-16}"
+LTF_LIMIT="${LTF_LIMIT:-24}"
 FVG_OFFSET_SPINUNITS="${FVG_OFFSET_SPINUNITS:-10}"
-MODE="${MODE:-prompt}"
+MODE="${MODE:-alert}"
+DATA_PROVIDER="${DATA_PROVIDER:-binance}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
+CTRADER_CLIENT_ID="${CTRADER_CLIENT_ID:-}"
+CTRADER_CLIENT_SECRET="${CTRADER_CLIENT_SECRET:-}"
+CTRADER_ACCESS_TOKEN="${CTRADER_ACCESS_TOKEN:-}"
+CTRADER_ACCOUNT_ID="${CTRADER_ACCOUNT_ID:-}"
 
 ECR_REPO="trading-signals"
 ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
@@ -156,17 +168,22 @@ trap 'rm -f "${ENV_JSON_FILE}"' EXIT
 cat > "${ENV_JSON_FILE}" <<EOF
 {
   "Variables": {
-    "STRATEGY":             "${STRATEGY}",
-    "SYMBOL":               "${SYMBOL}",
-    "HTF_TIMEFRAME":        "${HTF_TIMEFRAME}",
-    "LTF_TIMEFRAME":        "${LTF_TIMEFRAME}",
-    "HTF_LIMIT":            "${HTF_LIMIT}",
-    "LTF_LIMIT":            "${LTF_LIMIT}",
-    "FVG_OFFSET_SPINUNITS": "${FVG_OFFSET_SPINUNITS}",
-    "MODE":                 "${MODE}",
-    "TELEGRAM_BOT_TOKEN":   "${TELEGRAM_BOT_TOKEN}",
-    "TELEGRAM_CHAT_ID":     "${TELEGRAM_CHAT_ID}",
-    "ANTHROPIC_API_KEY":    "${ANTHROPIC_API_KEY}"
+    "STRATEGY":              "${STRATEGY}",
+    "SYMBOL":                "${SYMBOL}",
+    "HTF_TIMEFRAME":         "${HTF_TIMEFRAME}",
+    "LTF_TIMEFRAME":         "${LTF_TIMEFRAME}",
+    "HTF_LIMIT":             "${HTF_LIMIT}",
+    "LTF_LIMIT":             "${LTF_LIMIT}",
+    "FVG_OFFSET_SPINUNITS":  "${FVG_OFFSET_SPINUNITS}",
+    "MODE":                  "${MODE}",
+    "DATA_PROVIDER":         "${DATA_PROVIDER}",
+    "TELEGRAM_BOT_TOKEN":    "${TELEGRAM_BOT_TOKEN}",
+    "TELEGRAM_CHAT_ID":      "${TELEGRAM_CHAT_ID}",
+    "ANTHROPIC_API_KEY":     "${ANTHROPIC_API_KEY}",
+    "CTRADER_CLIENT_ID":     "${CTRADER_CLIENT_ID}",
+    "CTRADER_CLIENT_SECRET": "${CTRADER_CLIENT_SECRET}",
+    "CTRADER_ACCESS_TOKEN":  "${CTRADER_ACCESS_TOKEN}",
+    "CTRADER_ACCOUNT_ID":    "${CTRADER_ACCOUNT_ID}"
   }
 }
 EOF

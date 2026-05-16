@@ -8,6 +8,7 @@ COPY pyproject.toml uv.lock ./
 
 RUN uv pip install --system --no-cache \
     "ccxt>=4.5.48" \
+    "ctrader-open-api>=0.9.2" \
     "langchain-anthropic>=1.4.0" \
     "langchain-openai>=0.3.0" \
     "pandas>=3.0.2" \
