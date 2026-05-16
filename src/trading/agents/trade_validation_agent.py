@@ -11,19 +11,22 @@ load_dotenv()
 _DECISION_FENCE = "```decision"
 
 
-def _format_levels(setup: StrategySetup) -> str:
+def _format_levels(setup: StrategySetup) -> str | None:
     entry = setup.entry
     sl = setup.stop_loss
     tp = setup.take_profit
+    if entry is None or sl is None:
+        return None
     bullish = setup.direction.value == "bullish"
     risk = (entry - sl) if bullish else (sl - entry)
-    reward = (tp - entry) if bullish else (entry - tp)
+    reward = (tp - entry) if bullish and tp is not None else (entry - tp) if tp is not None else 0.0
     rr = reward / risk if risk else 0.0
     risk_pct = risk / entry * 100 if entry else 0.0
+    tp_str = f"{tp:,.2f}  ({rr:.1f}:1 RR)" if tp is not None else "—"
     return "\n".join([
         f"Entry (limit):  {entry:,.2f}",
         f"Stop Loss:      {sl:,.2f}  (risk {risk:,.2f}, {risk_pct:.2f}%)",
-        f"Take Profit:    {tp:,.2f}  ({rr:.1f}:1 RR)",
+        f"Take Profit:    {tp_str}",
     ])
 
 
@@ -41,33 +44,33 @@ def build_prompt(setup: StrategySetup) -> str:
     Returns:
         Prompt string ready to be sent to an LLM.
     """
-    return (
+    levels_str = _format_levels(setup)
+    sections: list[str] = [
         "You are a professional cryptocurrency trader specializing in "
-        "Smart Money Concepts (SMC).\n"
-        "\n"
-        "## Input Data\n"
-        f"{setup.input_data}\n"
-        "\n"
-        "## Strategy\n"
-        f"{setup.strategy_description}\n"
-        "\n"
-        f"## Detected Setup {setup.direction.value.upper()}\n"
-        "\n"
-        "### HTF Point of Interest\n"
-        f"{setup.htf_poi}\n"
-        "\n"
-        "### LTF Confirmation\n"
-        f"{setup.confirm_details}\n"
-        "\n"
-        "### Potential Targets\n"
-        f"{setup.target}\n"
-        "\n"
-        "### Computed Levels\n"
-        f"{_format_levels(setup)}\n"
-        "\n"
-        f"## {setup.candles}\n"
-        "\n"
-        "## Task\n"
+        "Smart Money Concepts (SMC).",
+        "",
+        "## Input Data",
+        setup.input_data,
+        "",
+        "## Strategy",
+        setup.strategy_description,
+        "",
+        f"## Detected Setup {setup.direction.value.upper()}",
+        "",
+        "### HTF Point of Interest",
+        setup.htf_poi,
+        "",
+        "### LTF Confirmation",
+        setup.confirm_details,
+    ]
+    if setup.target:
+        sections += ["", "### Potential Targets", setup.target]
+    if levels_str:
+        sections += ["", "### Computed Levels", levels_str]
+    if setup.candles:
+        sections += ["", f"## {setup.candles}"]
+    sections += ["", "## Task"]
+    return "\n".join(sections) + "\n" + (
         "Evaluate the detected setup across these dimensions:\n"
         "1. HTF trend alignment (higher highs / higher lows visible in candle data?)\n"
         "2. Quality of the liquidity sweep (clean wick into FVG vs. close inside zone?)\n"
@@ -179,8 +182,9 @@ def parse_decision(symbol: str, response: str, setup: StrategySetup) -> TradeDec
             confidence=confidence,
         )
 
-    entry = agent_entry if agent_entry is not None else setup.entry
-    stop_loss = agent_sl if agent_sl is not None else setup.stop_loss
+    entry: float | None = agent_entry if agent_entry is not None else setup.entry
+    stop_loss: float | None = agent_sl if agent_sl is not None else setup.stop_loss
+    take_profit: float | None
     if agent_tp is not None:
         take_profit = agent_tp
     elif agent_target is not None:
@@ -188,13 +192,17 @@ def parse_decision(symbol: str, response: str, setup: StrategySetup) -> TradeDec
     else:
         take_profit = setup.take_profit
 
-    # Only adjust entry for 2:1 RR when the agent did not provide explicit entry/sl/tp.
+    # Only adjust entry for 2:1 RR when the agent did not provide explicit entry/sl/tp
+    # and the strategy pre-computed levels are available.
     # Solving (|tp - e|) / (|e - sl|) = 2  →  e = (tp + 2*sl) / 3.
-    if agent_entry is None and agent_sl is None and agent_tp is None:
+    if (
+        agent_entry is None and agent_sl is None and agent_tp is None
+        and entry is not None and stop_loss is not None and take_profit is not None
+    ):
         if setup.direction.value == "bullish":
-            rr = (take_profit - entry) / (entry - stop_loss) if entry != stop_loss else 0
+            rr = (take_profit - entry) / (entry - stop_loss) if entry != stop_loss else 0.0
         else:
-            rr = (entry - take_profit) / (stop_loss - entry) if stop_loss != entry else 0
+            rr = (entry - take_profit) / (stop_loss - entry) if stop_loss != entry else 0.0
         if rr < 2.0:
             entry = (take_profit + 2 * stop_loss) / 3
 

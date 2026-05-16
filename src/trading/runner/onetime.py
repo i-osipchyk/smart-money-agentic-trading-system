@@ -58,6 +58,9 @@ class OneTimeRunner:
             from trading.strategies.htf_fvg_ltf_bos_v2 import (
                 format_strategy_components as _fmt_v2,
             )
+            from trading.strategies.htf_fvg_ltf_bos_v3 import (
+                format_strategy_components as _fmt_v3,
+            )
             if cfg.strategy == "htf_fvg_ltf_bos_v2":
                 gui_output(
                     _fmt_v2(
@@ -65,6 +68,13 @@ class OneTimeRunner:
                         cfg.fvg_offset_pct, cfg.block_fvg_mode,
                         cfg.use_trend_filter, cfg.min_rr_ratio,
                         cfg.htf_limit, cfg.htf_target_limit,
+                    )
+                )
+            elif cfg.strategy == "htf_fvg_ltf_bos_v3":
+                gui_output(
+                    _fmt_v3(
+                        cfg.symbol, htf_df, cfg.htf_tf, ltf_df, cfg.ltf_tf,
+                        cfg.fvg_offset_pct,
                     )
                 )
             else:
@@ -110,6 +120,10 @@ class OneTimeRunner:
             gui_output(agent.run(prompt))
 
         else:  # baseline
+            if setup.entry is None or setup.stop_loss is None or setup.take_profit is None:
+                out("─" * 44)
+                out("BASELINE — strategy does not provide entry levels; use prompt or agent mode.")
+                return
             entry = setup.entry
             stop_loss = setup.stop_loss
             take_profit = setup.take_profit

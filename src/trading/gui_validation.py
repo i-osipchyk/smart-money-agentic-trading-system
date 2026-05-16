@@ -194,7 +194,7 @@ class ValidationGUI:
         ttk.Combobox(
             frame,
             textvariable=self._strategy_var,
-            values=["htf_fvg_ltf_bos", "htf_fvg_ltf_bos_v2"],
+            values=["htf_fvg_ltf_bos", "htf_fvg_ltf_bos_v2", "htf_fvg_ltf_bos_v3"],
             state="readonly",
             width=22,
         ).pack(anchor=tk.W)
@@ -459,6 +459,7 @@ class ValidationGUI:
                 w.grid()
             else:
                 w.grid_remove()
+        # v3 does not support baseline mode — note is shown at runtime
 
     def _on_source_change(self) -> None:
         source = self._source_var.get()

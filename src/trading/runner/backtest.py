@@ -191,11 +191,14 @@ class BacktestRunner:
                     setup.detected_at.strftime("%Y-%m-%d %H:%M")
                     if setup.detected_at else "—"
                 )
+                _e = _FMT.format(setup.entry) if setup.entry is not None else "—"
+                _sl = _FMT.format(setup.stop_loss) if setup.stop_loss is not None else "—"
+                _tp = _FMT.format(setup.take_profit) if setup.take_profit is not None else "—"
                 gui_output(
                     f"Setup #{setup_num}  {dt_str}  {setup.direction.value.upper()}"
-                    f"  entry={_FMT.format(setup.entry)}"
-                    f"  sl={_FMT.format(setup.stop_loss)}"
-                    f"  tp={_FMT.format(setup.take_profit)}\n"
+                    f"  entry={_e}"
+                    f"  sl={_sl}"
+                    f"  tp={_tp}\n"
                 )
                 detail_output("Querying agent…\n")
                 try:
@@ -213,9 +216,9 @@ class BacktestRunner:
                         "setup_num": setup_num,
                         "open_time": dt_str,
                         "direction": setup.direction.value.upper(),
-                        "entry": setup.entry,
-                        "stop_loss": setup.stop_loss,
-                        "take_profit": setup.take_profit,
+                        "entry": setup.entry if setup.entry is not None else "",
+                        "stop_loss": setup.stop_loss if setup.stop_loss is not None else "",
+                        "take_profit": setup.take_profit if setup.take_profit is not None else "",
                         "should_trade": "YES" if td.should_trade else "NO",
                         "confidence": td.confidence,
                         "reasoning": td.reasoning,
@@ -228,6 +231,14 @@ class BacktestRunner:
 
         else:  # baseline
             def get_decision(setup: StrategySetup) -> TradeDecision:
+                if setup.entry is None or setup.stop_loss is None:
+                    return TradeDecision(
+                        symbol=cfg.symbol,
+                        should_trade=False,
+                        direction=setup.direction,
+                        reasoning="strategy does not provide entry levels",
+                        confidence="n/a",
+                    )
                 return TradeDecision(
                     symbol=cfg.symbol,
                     should_trade=True,

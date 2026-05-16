@@ -57,6 +57,21 @@ _PROTO_ERROR_PAYLOAD_TYPE = ProtoErrorRes().payloadType  # 50
 _OA_ERROR_PAYLOAD_TYPE = ProtoOAErrorRes().payloadType  # 2142
 _MAX_BARS_PER_PAGE = 4800
 
+# Timeframes that cTrader doesn't align to UTC as expected.
+# We fetch 1h bars and resample locally with the correct alignment.
+# 4h: opens at 02, 06, 10, 14, 18, 22 UTC (offset=2h from midnight epoch)
+# 1d: opens at 00 UTC (no offset needed)
+_SYNTHETIC_TIMEFRAMES: dict[str, tuple[str, str, str]] = {
+    "4h": ("1h", "4h", "2h"),
+    "1d": ("1h", "1d", "0h"),
+}
+_SYNTHETIC_MULTIPLIERS: dict[str, int] = {"4h": 4, "1d": 24}
+_SYNTHETIC_EXTRA: dict[str, int] = {"4h": 8, "1d": 25}
+_FREQ_TIMEDELTA: dict[str, pd.Timedelta] = {
+    "4h": pd.Timedelta(hours=4),
+    "1d": pd.Timedelta(days=1),
+}
+
 
 class CTraderDataSource:
     """DataSource for CFDs, commodities, and currencies via cTrader Open API.
@@ -118,12 +133,20 @@ class CTraderDataSource:
     async def _fetch(
         self, symbol: str, timeframe: str, limit: int, until: datetime | None = None
     ) -> pd.DataFrame:
-        minutes = _PERIOD_MINUTES[timeframe]
+        until_dt = until or datetime.now(UTC)
+
+        if timeframe in _SYNTHETIC_TIMEFRAMES:
+            raw_tf, freq, offset = _SYNTHETIC_TIMEFRAMES[timeframe]
+            raw_limit = limit * _SYNTHETIC_MULTIPLIERS[timeframe] + _SYNTHETIC_EXTRA[timeframe]
+        else:
+            raw_tf, freq, offset = timeframe, "", ""
+            raw_limit = limit
+
+        minutes = _PERIOD_MINUTES[raw_tf]
         period_ms = minutes * 60 * 1000
-        # Subtract one period so toTimestamp is the close time of the last bar,
-        # matching Binance's convention where `until` = close time of last candle.
-        to_ts = int((until or datetime.now(UTC)).timestamp() * 1000) - period_ms
-        from_ts = to_ts - period_ms * limit
+        # Subtract one raw period so toTimestamp excludes the current incomplete bar.
+        to_ts = int(until_dt.timestamp() * 1000) - period_ms
+        from_ts = to_ts - period_ms * raw_limit
 
         ssl_ctx = ssl.create_default_context()
         reader, writer = await asyncio.open_connection(
@@ -134,13 +157,16 @@ class CTraderDataSource:
             await self._account_auth(reader, writer)
             symbol_id, digits = await self._resolve_symbol(reader, writer, symbol)
             trendbars = await self._get_trendbars(
-                reader, writer, symbol_id, timeframe, from_ts, to_ts, limit
+                reader, writer, symbol_id, raw_tf, from_ts, to_ts, raw_limit
             )
         finally:
             writer.close()
             await writer.wait_closed()
 
-        return _decode_trendbars(trendbars, digits, limit)
+        df = _decode_trendbars(trendbars, digits, raw_limit)
+        if timeframe in _SYNTHETIC_TIMEFRAMES:
+            df = _resample(df, freq, offset, until_dt)
+        return df.tail(limit).reset_index(drop=True)
 
     async def _app_auth(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -272,6 +298,15 @@ class CTraderDataSource:
         until_ms: int,
         log: Callable[[str], None] | None = None,
     ) -> pd.DataFrame:
+        if timeframe in _SYNTHETIC_TIMEFRAMES:
+            raw_tf, freq, offset = _SYNTHETIC_TIMEFRAMES[timeframe]
+            # Pad since by one synthetic period for alignment
+            synth_period_ms = _PERIOD_MINUTES[timeframe] * 60 * 1000
+            raw_since_ms = since_ms - synth_period_ms
+        else:
+            raw_tf, freq, offset = timeframe, "", ""
+            raw_since_ms = since_ms
+
         ssl_ctx = ssl.create_default_context()
         reader, writer = await asyncio.open_connection(
             self._host, self._port, ssl=ssl_ctx
@@ -289,13 +324,16 @@ class CTraderDataSource:
             if log is not None:
                 log(f"Symbol resolved: {symbol} (id={symbol_id}, digits={digits})")
             all_bars = await self._paginate(
-                reader, writer, symbol_id, timeframe, since_ms, until_ms, log
+                reader, writer, symbol_id, raw_tf, raw_since_ms, until_ms, log
             )
         finally:
             writer.close()
             await writer.wait_closed()
 
         df = _decode_trendbars(all_bars, digits, len(all_bars))
+        if timeframe in _SYNTHETIC_TIMEFRAMES:
+            until_dt = datetime.fromtimestamp(until_ms / 1000, tz=UTC)
+            df = _resample(df, freq, offset, until_dt)
         since_dt = datetime.fromtimestamp(since_ms / 1000, tz=UTC)
         until_dt = datetime.fromtimestamp(until_ms / 1000, tz=UTC)
         mask = (df["timestamp"] >= since_dt) & (df["timestamp"] <= until_dt)
@@ -332,6 +370,22 @@ class CTraderDataSource:
         until_ms: int,
         log: Callable[[str], None] | None = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        until_dt = datetime.fromtimestamp(until_ms / 1000, tz=UTC)
+
+        if htf_tf in _SYNTHETIC_TIMEFRAMES:
+            htf_raw_tf, htf_freq, htf_offset = _SYNTHETIC_TIMEFRAMES[htf_tf]
+            htf_raw_since_ms = htf_since_ms - _PERIOD_MINUTES[htf_tf] * 60 * 1000
+        else:
+            htf_raw_tf, htf_freq, htf_offset = htf_tf, "", ""
+            htf_raw_since_ms = htf_since_ms
+
+        if ltf_tf in _SYNTHETIC_TIMEFRAMES:
+            ltf_raw_tf, ltf_freq, ltf_offset = _SYNTHETIC_TIMEFRAMES[ltf_tf]
+            ltf_raw_since_ms = ltf_since_ms - _PERIOD_MINUTES[ltf_tf] * 60 * 1000
+        else:
+            ltf_raw_tf, ltf_freq, ltf_offset = ltf_tf, "", ""
+            ltf_raw_since_ms = ltf_since_ms
+
         ssl_ctx = ssl.create_default_context()
         reader, writer = await asyncio.open_connection(
             self._host, self._port, ssl=ssl_ctx
@@ -351,27 +405,33 @@ class CTraderDataSource:
             if log is not None:
                 log(f"Fetching {htf_tf} bars …")
             htf_bars = await self._paginate(
-                reader, writer, symbol_id, htf_tf, htf_since_ms, until_ms, log,
+                reader, writer, symbol_id, htf_raw_tf, htf_raw_since_ms, until_ms, log,
                 label=htf_tf,
             )
             if log is not None:
                 log(f"Fetching {ltf_tf} bars …")
             ltf_bars = await self._paginate(
-                reader, writer, symbol_id, ltf_tf, ltf_since_ms, until_ms, log,
+                reader, writer, symbol_id, ltf_raw_tf, ltf_raw_since_ms, until_ms, log,
                 label=ltf_tf,
             )
         finally:
             writer.close()
             await writer.wait_closed()
 
-        def _as_df(bars: list[Any], since_ms: int) -> pd.DataFrame:
+        def _as_df(
+            bars: list[Any], since_ms: int, tf: str, freq: str, offset: str
+        ) -> pd.DataFrame:
             df = _decode_trendbars(bars, digits, len(bars))
+            if tf in _SYNTHETIC_TIMEFRAMES:
+                df = _resample(df, freq, offset, until_dt)
             since_dt = datetime.fromtimestamp(since_ms / 1000, tz=UTC)
-            until_dt = datetime.fromtimestamp(until_ms / 1000, tz=UTC)
             mask = (df["timestamp"] >= since_dt) & (df["timestamp"] <= until_dt)
             return df[mask].reset_index(drop=True)
 
-        return _as_df(htf_bars, htf_since_ms), _as_df(ltf_bars, ltf_since_ms)
+        return (
+            _as_df(htf_bars, htf_since_ms, htf_tf, htf_freq, htf_offset),
+            _as_df(ltf_bars, ltf_since_ms, ltf_tf, ltf_freq, ltf_offset),
+        )
 
 
 async def _send(writer: asyncio.StreamWriter, inner_msg: Any) -> None:
@@ -432,3 +492,25 @@ def _decode_trendbars(trendbars: list[Any], digits: int, limit: int) -> pd.DataF
 
     df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
     return df.tail(limit).reset_index(drop=True)
+
+
+def _resample(df: pd.DataFrame, freq: str, offset: str, exclude_after: datetime) -> pd.DataFrame:
+    """Aggregate 1h bars into synthetic candles with a fixed UTC alignment.
+
+    Only fully closed candles (close time <= exclude_after) are returned.
+    For 4h with offset='2h': periods open at 02, 06, 10, 14, 18, 22 UTC.
+    For 1d with offset='0h': periods open at 00 UTC.
+    """
+    indexed = df.set_index("timestamp")
+    agg = indexed.resample(freq, offset=offset).agg({
+        "open": "first",
+        "high": "max",
+        "low": "min",
+        "close": "last",
+        "volume": "sum",
+    })
+    agg = agg.dropna(subset=["open"])
+    period_td = _FREQ_TIMEDELTA[freq]
+    # Drop candles whose close time has not yet passed
+    agg = agg[agg.index + period_td <= pd.Timestamp(exclude_after)]
+    return agg.reset_index()

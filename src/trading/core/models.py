@@ -57,9 +57,9 @@ class StrategySetup(BaseModel):
     direction: Trend
     htf_poi: str
     confirm_details: str
-    target: str
-    candles: str
-    entry: float
-    stop_loss: float
-    take_profit: float
+    target: str = ""
+    candles: str = ""
+    entry: float | None = None
+    stop_loss: float | None = None
+    take_profit: float | None = None
     detected_at: datetime | None = None

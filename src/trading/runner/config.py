@@ -11,11 +11,12 @@ from trading.core.models import Timeframe, Trend
 from trading.strategies.base import Strategy
 from trading.strategies.htf_fvg_ltf_bos import HtfFvgLtfBos
 from trading.strategies.htf_fvg_ltf_bos_v2 import HtfFvgLtfBosV2
+from trading.strategies.htf_fvg_ltf_bos_v3 import HtfFvgLtfBosV3
 
 OutputMode = Literal["prompt", "agent", "baseline", "strategy_inspect"]
 DataSourceType = Literal["csv", "past", "live"]
 DataProviderType = Literal["binance", "ctrader"]
-StrategyKey = Literal["htf_fvg_ltf_bos", "htf_fvg_ltf_bos_v2"]
+StrategyKey = Literal["htf_fvg_ltf_bos", "htf_fvg_ltf_bos_v2", "htf_fvg_ltf_bos_v3"]
 
 _TF_SECONDS: dict[str, int] = {
     "5m": 300,
@@ -31,6 +32,7 @@ _FMT = "{:,.2f}"
 _STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
     "htf_fvg_ltf_bos": HtfFvgLtfBos,
     "htf_fvg_ltf_bos_v2": HtfFvgLtfBosV2,
+    "htf_fvg_ltf_bos_v3": HtfFvgLtfBosV3,
 }
 
 
@@ -41,6 +43,8 @@ def make_strategy(config: RunConfig) -> Strategy:
             block_fvg_mode=config.block_fvg_mode,
             use_trend_filter=config.use_trend_filter,
         )
+    if config.strategy == "htf_fvg_ltf_bos_v3":
+        return HtfFvgLtfBosV3(fvg_offset_pct=config.fvg_offset_pct)
     return HtfFvgLtfBosV2(
         fvg_offset_pct=config.fvg_offset_pct,
         block_fvg_mode=config.block_fvg_mode,
